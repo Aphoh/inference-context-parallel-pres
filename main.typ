@@ -20,6 +20,20 @@
 #let smat(..args) = { math.mat(delim: "[", ..args) }
 #let bvec(a) = { math.accent(math.bold(a), math.arrow)}
 
+// Color palette
+#let colors = (
+  blue: rgb("#3b82f6"),
+  blue-light: rgb("#60a5fa"),
+  red: rgb("#ef4444"),
+  orange: rgb("#f97316"),
+  purple: rgb("#8b5cf6"),
+  purple-light: rgb("#a78bfa"),
+  green: rgb("#22c55e"),
+  green-light: rgb("#4ade80"),
+  gray: rgb("#6b7280"),
+  gray-light: rgb("#f3f4f6"),
+)
+
 #title-slide()
 
 == Background: Attention (single query)
@@ -93,11 +107,11 @@ $bvec(o)$ will have the correct output for $Q_i$
     )
     let (uncover, only) = utils.methods(self)
     
-    // Colors
-    let q-color = rgb("#2563eb")  // blue
-    let kv-color = rgb("#dc2626") // red
-    let node-fill = rgb("#f3f4f6")
-    let arrow-color = rgb("#6b7280")
+    // Colors (using global palette)
+    let q-color = colors.blue
+    let kv-color = colors.red
+    let node-fill = colors.gray-light
+    let arrow-color = colors.gray
     
     // Layout parameters
     let radius = 3.5
@@ -208,37 +222,35 @@ $bvec(o)$ will have the correct output for $Q_i$
 For $N$ ranks, sequence length $T$, model dim $D_q$, $N_H$ query heads, $N_(K V)$ KV heads:, $e$ bytes/element
 
 #table(columns: 2, inset: 15pt,
-  [*FLOPS*],  [ $4 T^2 D$],
+  [*FLOPS*],  [ $2 T^2 D$],
   [*Q bytes*], [$T D e$],
   [*KV bytes*], [$2 T D (N_(K V)) / (N_H) e$]
 )
 
-*Computation* (per rank): $display((4 T^2 D) / N)$ FLOPs
+*Computation*: $display((2 T^2 D) / N)$ FLOPs
 
-*Communication* (per rank): $display(2 T D (N_(K V)) / (N_H) e)$ bytes
+*Communication* (unidirectional): $display(2 T D (N_(K V)) / (N_H) e)$ bytes
 #let BW = $"BW"$
 
-Overlap condition: $ (4 T^2 D / N) / C >= (2 T D (N_(K V)) / (N_H) e) / BW $
+Overlap condition: $ (2 T^2 D / N) / C >= (2 T D (N_(K V) / N_H) e) / BW $
 
 $
-  2 T / (C N) &>= N_(K V) / (N_H e BW) \
-  T &>= (N_(K V) / N_H)  (C / (2 e BW))
+  T / (C N) &>= (N_(K V) e) / (N_H BW) \
+  T &>= N (N_(K V) / N_H)  ((C e) / (BW))
 $
 
 #let sci(a, x) = a * calc.pow(10, x)
 #let blackwell_mem_bw = sci(8, 12)
-#let blackwell_c = sci(9, 15)
-
-$C/BW$ for Blackwell FP4 is $approx$#(blackwell_c / blackwell_mem_bw)
-
-== When Can We Hide Communication?
-
-// T_min = (N_KV / N_H) * (C / (2 * e * BW))
-// C scales with precision: FP4 = 9e15, FP8 = 4.5e15
+#let blackwell_ifb_bw = sci(200, 9)
+#let blackwell_nvlink_bw = sci(0.9, 12)
 #let blackwell_c_fp4 = sci(9, 15)
 #let blackwell_c_fp8 = sci(4.5, 15)
 
-#let t_min(n_kv, n_h, e, c) = (n_kv / n_h) * c / (2 * e * blackwell_mem_bw)
+$(C e)/BW$ for Blackwell IFB is $approx$#(blackwell_c_fp4 * 0.5 / blackwell_ifb_bw)
+
+== When Can We Hide Communication?
+
+#let t_min(n, n_kv, n_h, e, c, bw) = n * (n_kv / n_h) * c * e / (2 * bw)
 
 // Model configs
 #let llama_nkv = 8
@@ -246,21 +258,30 @@ $C/BW$ for Blackwell FP4 is $approx$#(blackwell_c / blackwell_mem_bw)
 #let gptoss_nkv = 8
 #let gptoss_nh = 64
 
-// Compute T_min for each config
-#let llama_fp4 = t_min(llama_nkv, llama_nh, 0.5, blackwell_c_fp4)
-#let llama_fp8 = t_min(llama_nkv, llama_nh, 1, blackwell_c_fp8)
-#let gptoss_fp4 = t_min(gptoss_nkv, gptoss_nh, 0.5, blackwell_c_fp4)
+// TODO: add deepseek v3 https://verda.com/blog/multi-head-latent-attention-benefits-in-memory-and-computation
 
-Minimum $T$ for communication overlap (Blackwell):
+// Compute T_min for each config
+#let llama_fp4_nvl =  t_min(8, llama_nkv, llama_nh, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
+#let llama_fp8_nvl =  t_min(8, llama_nkv, llama_nh, 1, blackwell_c_fp8, blackwell_nvlink_bw)
+#let gptoss_fp4_nvl = t_min(8, gptoss_nkv, gptoss_nh, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
+#let  llama_fp4_ib =  t_min(8, llama_nkv, llama_nh, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
+#let  llama_fp8_ib =  t_min(8, llama_nkv, llama_nh, 1, blackwell_c_fp8, blackwell_ifb_bw)
+#let gptoss_fp4_ib =  t_min(8, gptoss_nkv, gptoss_nh, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
+
+Minimum $T$ for communication overlap (8 $times$ B200) #footnote[Infiniband unidirectional @ 200GB/s, 4.5e12 FP8 FLOPS, 9e12 FP4 FLOPS]:
 
 #align(center)[
+  #set text(font: "Menlo", size: 14pt)
 #cetz.canvas({
   import cetz.draw: *
   
   let data = (
-    ([GPT-OSS FP4], gptoss_fp4),
-    ([Llama 405B FP4], llama_fp4),
-    ([Llama 405B FP8], llama_fp8),
+    ([GPT-OSS   FP4 NVL], gptoss_fp4_nvl),
+    ([Llama405B FP4 NVL], llama_fp4_nvl),
+    ([Llama405B FP8 NVL], llama_fp8_nvl),
+    ([GPT-OSS   FP4 IFB], gptoss_fp4_ib),
+    ([Llama405B FP4 IFB], llama_fp4_ib),
+    ([Llama405B FP8 IFB], llama_fp8_ib),
   )
   
   set-style(barchart: (bar-width: 0.6))
@@ -269,23 +290,58 @@ Minimum $T$ for communication overlap (Blackwell):
     label-key: 0,
     value-key: 1,
     data,
-    x-label: text(size: 18pt)[$T_min$ (tokens)],
-    x-tick-step: 100,
-    x-format: x => text(size: 18pt, font: "Menlo")[#(plot.formats.sci(x))],
+    x-label: [$T_min$ (tokens)],
+    x-tick-step: 4000,
+    x-format: x => text(size: 12pt)[#(plot.formats.sci(x))],
     bar-style: (idx) => {
-      let colors = (rgb("#3b82f6"), rgb("#60a5fa"), rgb("#ef4444"))
-      (fill: colors.at(idx), stroke: none)
+      // NVLink (first 3): blues/greens, IB (last 3): reds/oranges
+      let bar-colors = (
+        colors.red,          // GPT-OSS FP4 NVLink
+        colors.blue,         // Llama FP4 NVLink
+        colors.blue-light,   // Llama FP8 NVLink
+        colors.orange,       // GPT-OSS FP4 IB
+        colors.purple,       // Llama FP4 IB
+        colors.purple-light, // Llama FP8 IB
+      )
+      (fill: bar-colors.at(idx), stroke: none)
     }
   )
 })
 ]
 
-#table(columns: 5, inset: 10pt, align: center,
-  [*Model*], [$N_H$], [$N_(K V)$], [*Precision*], [$T_min$],
-  [Llama 405B], [128], [8], [FP4], [#calc.round(llama_fp4)],
-  [Llama 405B], [128], [8], [FP8], [#calc.round(llama_fp8)],
-  [GPT-OSS], [64], [8], [FP4], [#calc.round(gptoss_fp4)],
+
+GPT-OSS $N_H / N_(K V) = 64 / 8$
+
+Llama405B $N_H / N_(K V) = 128 / 8 = 16$
+
+== Context Parallel with Prefixes
+With $P$ cached tokens,
+
+#table(columns: 2, inset: 15pt,
+  [*FLOPS*],  [ $2 T(P + T) D$],
+  [*Q bytes*], [$T D e$],
+  [*KV bytes*], [$2 (P + T) D (N_(K V)) / (N_H) e$]
 )
 
-More KV heads relative to Q heads → need longer sequences to hide comm
+*Computation*: $display((2 T(P + T) D) / N)$ FLOPs
+
+*Communication* (unidirectional): $display(2 (P + T) D (N_(K V)) / (N_H) e)$ bytes
+
+Overlap condition: 
+$ 
+(2 T(P + T) D) /(C N) &>= (2 (P + T) D (N_(K V)) / (N_H) e) / BW  \
+  T / (C N) &>= N_(K V)/N_H e/BW \
+  T &>= N N_(K V) / N_H  (C e) / BW 
+$
+#pause #emoji.excl it's the same!
+
+But the new $T$ is _only new tokens_!
+
+Must be 4k+ to hide communication!
+
+== Context Parallelism over Queries
+
+For small $T$, queries are much smaller than KV!
+
+What if we ring-pass queries?
 
