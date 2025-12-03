@@ -345,3 +345,301 @@ For small $T$, queries are much smaller than KV!
 
 What if we ring-pass queries?
 
+== Ring Attention: Pass-Q
+
+#slide(repeat: 6, self => [
+  #let (uncover, only) = utils.methods(self)
+  
+  #align(center)[
+    #text(size: 18pt)[
+      #only(1)[Step 1: Each rank computes local attention, stores $(o, m, Z)$]
+      #only(2)[Step 2: Send Q to next rank, compute & store]
+      #only(3)[Step 3: Send Q to next rank, compute & store]
+      #only(4)[Step 4: Send Q to next rank, compute & store]
+      #only(5)[All2All: Exchange partial outputs...]
+      #only(6)[Done! Each rank has all partials for its own Q]
+    ]
+  ]
+  
+  #v(0.5em)
+  
+  #align(center + horizon)[
+  #cetz.canvas({
+    import cetz.draw: *
+    
+    let self = utils.merge-dicts(
+      self,
+      config-methods(cover: utils.method-wrapper(hide.with(bounds: true))),
+    )
+    let (uncover, only) = utils.methods(self)
+    
+    // Colors (using global palette)
+    let q-color = colors.blue
+    let kv-color = colors.red
+    let state-color = colors.green
+    let node-fill = colors.gray-light
+    let arrow-color = colors.gray
+    
+    // Layout parameters
+    let radius = 3.0
+    let box-size = 0.75
+    let q-box-w = 0.5
+    let q-box-h = 0.3
+    let state-box-w = 0.75
+    let state-box-h = 0.2
+    
+    // 4 positions: top, right, bottom, left
+    let positions = (
+      (0, radius),      // Rank 0 - top
+      (radius, 0),      // Rank 1 - right  
+      (0, -radius),     // Rank 2 - bottom
+      (-radius, 0),     // Rank 3 - left
+    )
+    
+    // Q offsets (outside the box)
+    let q-offsets = (
+      (0, -box-size - 0.4),   // Rank 0: below box
+      (-box-size - 0.55, 0),  // Rank 1: left of box
+      (0, box-size + 0.4),    // Rank 2: above box
+      (box-size + 0.55, 0),   // Rank 3: right of box
+    )
+    
+    // State offsets (on the other side, more spaced out)
+    let state-offsets = (
+      (0, box-size + 1.3),    // Rank 0: above box
+      (box-size + 1.5, 0),    // Rank 1: right of box
+      (0, -box-size - 1.3),   // Rank 2: below box
+      (-box-size - 1.5, 0),   // Rank 3: left of box
+    )
+    
+    // Draw arrows - ring for steps 1-4, all-to-all for steps 5-6
+    // Steps 1-4: Ring arrows
+    for step in range(1, 5) {
+      only(step, {
+        for i in range(4) {
+          let curr = positions.at(i)
+          let next = positions.at(calc.rem(i + 1, 4))
+          
+          let dx = next.at(0) - curr.at(0)
+          let dy = next.at(1) - curr.at(1)
+          let len = calc.sqrt(dx * dx + dy * dy)
+          let shrink = (box-size + 0.3) / len
+          
+          let start-x = curr.at(0) + dx * shrink
+          let start-y = curr.at(1) + dy * shrink
+          let end-x = next.at(0) - dx * shrink
+          let end-y = next.at(1) - dy * shrink
+          
+          line(
+            (start-x, start-y),
+            (end-x, end-y),
+            stroke: (paint: arrow-color, thickness: 1.5pt, dash: "dashed"),
+            mark: (end: "stealth", fill: arrow-color),
+          )
+        }
+      })
+    }
+    
+    // Step 5: All-to-All arrows and label
+    let a2a-color = colors.orange
+    only(5, {
+        // Draw bidirectional arrows between all pairs
+        for i in range(4) {
+          for j in range(i + 1, 4) {
+            let p1 = positions.at(i)
+            let p2 = positions.at(j)
+            
+            let dx = p2.at(0) - p1.at(0)
+            let dy = p2.at(1) - p1.at(1)
+            let len = calc.sqrt(dx * dx + dy * dy)
+            let shrink = (box-size + 0.25) / len
+            
+            let start-x = p1.at(0) + dx * shrink
+            let start-y = p1.at(1) + dy * shrink
+            let end-x = p2.at(0) - dx * shrink
+            let end-y = p2.at(1) - dy * shrink
+            
+            line(
+              (start-x, start-y),
+              (end-x, end-y),
+              stroke: (paint: a2a-color, thickness: 2pt),
+              mark: (start: "stealth", end: "stealth", fill: a2a-color),
+            )
+          }
+        }
+        
+        // Central "All2All" label
+        rect(
+          (-0.8, -0.35),
+          (0.8, 0.35),
+          fill: rgb("#fff7ed"),
+          stroke: (paint: a2a-color, thickness: 1.5pt),
+          radius: 0.15
+        )
+        content(
+          (0, 0),
+          text(fill: a2a-color, weight: "bold", size: 12pt)[All2All]
+        )
+      })
+    
+    // Draw nodes with KV (fixed) and labels inside
+    for i in range(4) {
+      let pos = positions.at(i)
+      
+      // Square box
+      rect(
+        (pos.at(0) - box-size, pos.at(1) - box-size),
+        (pos.at(0) + box-size, pos.at(1) + box-size),
+        fill: node-fill,
+        stroke: 1.5pt
+      )
+      
+      // Rank label inside the box at the top
+      content(
+        (pos.at(0), pos.at(1) + box-size - 0.22),
+        text(size: 10pt, weight: "bold")[Rank #i]
+      )
+      
+      // KV stays fixed in the middle-bottom
+      content(
+        (pos.at(0), pos.at(1) - 0.15),
+        text(fill: kv-color, weight: "bold", size: 12pt, font: "Menlo")[K#i V#i]
+      )
+    }
+    
+    // Animate Q positions based on subslide
+    for q-idx in range(4) {
+      let get-rank(step) = calc.rem(q-idx + step - 1, 4)
+      
+      // Steps 1-4: Q's rotate around the ring
+      for step in range(1, 5) {
+        only(step, {
+          let rank = get-rank(step)
+          let pos = positions.at(rank)
+          let offset = q-offsets.at(rank)
+          let q-x = pos.at(0) + offset.at(0)
+          let q-y = pos.at(1) + offset.at(1)
+          
+          rect(
+            (q-x - q-box-w, q-y - q-box-h),
+            (q-x + q-box-w, q-y + q-box-h),
+            fill: rgb("#eff6ff"),
+            stroke: (paint: q-color, thickness: 1pt),
+            radius: 0.08
+          )
+          content(
+            (q-x, q-y),
+            text(fill: q-color, weight: "bold", size: 12pt, font: "Menlo")[Q#q-idx]
+          )
+        })
+      }
+      
+      // Steps 5-6: Q's return to their original rank
+      for step in (5, 6) {
+        only(step, {
+          let rank = q-idx  // Q returns to its home rank
+          let pos = positions.at(rank)
+          let offset = q-offsets.at(rank)
+          let q-x = pos.at(0) + offset.at(0)
+          let q-y = pos.at(1) + offset.at(1)
+          
+          rect(
+            (q-x - q-box-w, q-y - q-box-h),
+            (q-x + q-box-w, q-y + q-box-h),
+            fill: rgb("#eff6ff"),
+            stroke: (paint: q-color, thickness: 1pt),
+            radius: 0.08
+          )
+          content(
+            (q-x, q-y),
+            text(fill: q-color, weight: "bold", size: 12pt, font: "Menlo")[Q#q-idx]
+          )
+        })
+      }
+    }
+    
+    // Show computed attention results accumulating at each rank
+    // For rank r, track which Q's have visited and computed Attn(Qi, KrVr)
+    // Q rotation: Q_i is at rank (i + step - 1) mod 4 at step
+    // So rank r has Q_(r - step + 1 mod 4) at step
+    
+    // Precompute which Q visits each rank at each step
+    let get-q-at-rank(rank, step) = calc.rem(rank - step + 1 + 4, 4)
+    let state-text-color = rgb("#166534")  // darker green for readability
+    let final-color = colors.purple  // color for final result
+    
+    for rank in range(4) {
+      let pos = positions.at(rank)
+      let offset = state-offsets.at(rank)
+      let state-x = pos.at(0) + offset.at(0)
+      let state-y = pos.at(1) + offset.at(1)
+      
+      // Steps 1-4: Show accumulating partials (different Q's, same KV)
+      for step in range(1, 5) {
+        only(step, {
+          let computed = ()
+          for s in range(1, step + 1) {
+            let q-id = get-q-at-rank(rank, s)
+            computed.push("A(Q" + str(q-id) + ",K" + str(rank) + "V" + str(rank) + ")")
+          }
+          
+          let num-items = computed.len()
+          let item-height = 0.35
+          let box-height = num-items * item-height + 0.15
+          
+          rect(
+            (state-x - state-box-w - 0.4, state-y - box-height / 2),
+            (state-x + state-box-w + 0.4, state-y + box-height / 2),
+            fill: rgb("#f0fdf4"),
+            stroke: (paint: state-color, thickness: 1pt),
+            radius: 0.08
+          )
+          
+          for (idx, item) in computed.enumerate() {
+            let y-pos = state-y + box-height / 2 - 0.22 - idx * item-height
+            content(
+              (state-x, y-pos),
+              text(fill: state-text-color, size: 10pt, font: "Menlo")[#item]
+            )
+          }
+        })
+      }
+      
+      // Steps 5-6: After All2All, show own Q with all KVs
+      for step in (5, 6) {
+        only(step, {
+          let computed = ()
+          for kv-id in range(4) {
+            computed.push("A(Q" + str(rank) + ",K" + str(kv-id) + "V" + str(kv-id) + ")")
+          }
+          
+          let num-items = computed.len()
+          let item-height = 0.35
+          let box-height = num-items * item-height + 0.15
+          
+          let box-fill = if step == 6 { rgb("#faf5ff") } else { rgb("#f0fdf4") }
+          let box-stroke = if step == 6 { final-color } else { state-color }
+          let text-color = if step == 6 { rgb("#6b21a8") } else { state-text-color }
+          
+          rect(
+            (state-x - state-box-w - 0.4, state-y - box-height / 2),
+            (state-x + state-box-w + 0.4, state-y + box-height / 2),
+            fill: box-fill,
+            stroke: (paint: box-stroke, thickness: 1pt),
+            radius: 0.08
+          )
+          
+          for (idx, item) in computed.enumerate() {
+            let y-pos = state-y + box-height / 2 - 0.22 - idx * item-height
+            content(
+              (state-x, y-pos),
+              text(fill: text-color, size: 10pt, font: "Menlo")[#item]
+            )
+          }
+        })
+      }
+    }
+    
+  })
+  ]
+])
