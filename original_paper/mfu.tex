@@ -1,0 +1,61 @@
+\begin{table}
+\caption{Llama3 405B model configurations.}
+%\begin{table}[!t]
+\centering
+{\footnotesize
+\setlength{\tabcolsep}{20pt}
+  \begin{tabular}{l | c }
+  \whline
+  Parameter & Value  \\
+  \whline
+Layers ($ \#layers $) &  126 \\
+\hline
+Model Dimension ($ D $) &  16,384 \\
+\hline
+FFN Dimension & 53,248 \\
+\hline
+Attention Heads ($ N_H $) & 128 \\
+\hline
+Key/Value Heads ($ N_{KV} $) & 8 \\
+\hline
+      Parameter Size ($ W $) & 405 B \\
+  \whline
+  \end{tabular}
+}
+\label{tab:llama3_model_config}
+\end{table}
+    We calculate the effective Model FLOPS utilization (MFU)~\cite{chowdhery2023palm} in this section. The Llama3 405B model configurations are listed in Table \ref{tab:llama3_model_config}. The total FLOPS are dominant by GEMM and Attention parts:
+\[
+    \textbf{\tt Total FLOPS} = \textbf{\tt GEMM FLOPS} + \textbf{\tt ATTN FLOPS}.
+\]
+    \begin{itemize}
+        \item For GEMM, an $ W $-parameter Transformer model requires $ 2 \cdot W $ matrix multiplication FLOPs for each token during inference:
+\[
+    \textbf{\tt GEMM FLOPS} = 2 \times W \times T \times B.
+\]
+\item For Attention, the FLOPS is quadratic with respect to the context length $ T $:
+\[
+\textbf{\tt ATTN FLOPS} = 1/2 \times 4 \times B \times T^2 \times D \times \#layers,
+\]
+where 1/2 is from the causal mask, 4 is from 2 batch matmul and 2 FLOPS for multiplication and addition.
+    \end{itemize}
+
+With input sequence length $ T = 1M $, batch size $ B = 1 $, the parameter size
+    $ W = 405B $, we can get \textbf{\tt GEMM FLOPS} = $ 2 \times 405B \times 1M $ = $ 8.1 \times 10^{17} $.
+With the model dimension $ D = 16384 $, and number of layers $ \#layers = 126 $,
+we can derive \textbf{\tt ATTN FLOPS} = $ 1/2 \times 1M ^ 2 \times 16384 \times 126 $ = $ 4.1 \times 10^{18} $.
+Attention FLOPS is more dominant compared to GEMM FLOPS.
+The total FLOPS is $ 4.9 \times 10^{18} $. With 77 seconds for 1M context length using 128 H100 GPUs, each H100 achieves
+$ 4.9 \times 10^{18} / 77 / 128 = 502 $ TF/sec.
+    Note that with the standalone Flash Attention v3 causal attention benchmark using 8K context length on a single H100 (1M context length sharded across 128 H100 GPUs), we achieve 540 TF/sec.
+    One caveat for the evaluation is that GTT/GTI (Section \ref{sec:exp_setup}) are configured with power limited H100 GPUs (500 Watt) with lower memory bandwidth (96 GB HBM2e with 2.4 TB/sec instead of 80 GB HBM3 with 3.35 TB/sec), where the BF16 peak for each H100 is 800 TF/sec, instead of 989 TF/sec for H100 HBM3 with 700 Watt.
+
+% https://docs.google.com/spreadsheets/d/1WF5JtclGjWthlM1CzTLTpS8eIsmH5R412K1yZ6-kAD0/edit?gid=0#gid=0
+
+% https://www.internalfb.com/diff/D64671507
+
+% FP8 GEMM + bf16 FAv3
+
+    % 800 TF/sec Source: https://docs.google.com/document/d/1WYod0wCKk_4zB6nPMWLYz45mEmP1Ir5KMclt1XofCPM/edit
+% One 500 Watt H100 BF16 peak: 700 TF/sec
+% FP8 GEMM, BF16 attention

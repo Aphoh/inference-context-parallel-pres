@@ -1,0 +1,78 @@
+% We summarize the notations used in this paper for reference in Table \ref{tab:notation}.
+The notations used in this paper are summarized in Table \ref{tab:notation}.
+
+\begin{table}[t]
+\caption{Notation table.}
+\vskip 0.05in
+%\begin{table}[!t]
+\centering
+{\footnotesize
+\setlength{\tabcolsep}{3pt}
+  \begin{tabular}{c | l }
+  \whline
+  Notation & Description  \\
+  \whline
+      $ N_H $ &  Number of query heads (or attention heads) \\
+\hline
+$ N_{KV} $ &  Number of key/value heads \\
+\hline
+$ D_H $ & Head dimension in Transformer \\
+\hline
+$ D $ & Model dimension in Transformer: $ D_H \cdot N_H $ \\
+\hline
+$ Q, K, V $ & Query, Key, Value tensors \\
+\hline
+$ B $ & Batch size (\# of input sequences)  \\
+\hline
+$ W $ & Model parameter size \\
+\hline
+$ T $ & Input sequence length \\
+\hline
+$ P $ & Previously cached KV length \\
+\hline
+$ e $ & Element data type size \\
+\hline
+$ C $ & Peak compute \\
+\hline
+$ BW $ & Peak comm bandwidth  \\
+\hline
+$ bid $ & Decode batch id \\
+\hline
+      \multirow{2}{*}{ $ T^i_{j}  |  P^i_{j} $ } & \# of \{new tokens $ | $ cached KV tokens\} in $ i $-th  \\
+                                                   & sequence sharded to CP rank $ j $ \\
+\hline
+      $ L^i $& $ KV $ length in $ i $-th sequence: {\tiny $ max_{j=0}^{N-1}(P^i_j+T^i_j) $} \\
+\hline
+$ N $ & Number of hosts/nodes/CP ranks \\
+\hline
+$ N_{TP} $ & TP group size (\# of GPUs in a TP group) \\
+\hline
+      \multirow{2}{*}{ $ Q^s_{k} | KV^s_{k} | bid^s_{k} $} & \{Query $ | $ key and value tensors $ | $ batch id \} \\
+      & on rank $ k $, originally allocated to rank $ s $ \\
+\hline
+      $ O^s_{k} $& Attention output from $ Q_k $ and $ KV^{s} $ \\
+\hline
+      \multirow{2}{*}{$ TP8,TP16 $} & Tensor parallel sharding over 8 GPUs  \\
+      & on one node or 16 GPUs on two nodes \\
+\hline
+      \multirow{2}{*}{ $ CP_N $} & Context parallel sharding on $ N $ nodes  \\
+      & with TP8 for each node (same as {\tiny $ CP_N $+$ TP8 $}) \\
+\hline
+      \multirow{2}{*}{ $ TTFT $} & Time-to-first-token: latency for prefilling \\
+      & the whole input tokens \\
+\hline
+      \multirow{2}{*}{ $ TTIT $} & Time-to-incremental-token: latency for \\
+      & decoding each output token \\
+  \whline
+  \end{tabular}
+}
+\label{tab:notation}
+\end{table}
+
+
+% %\multirow{2}{*}{ $ N_m^{X_{\{g,r,s\}\{r,s,g\}}} $ } & $ N_m $ for $ X $ from the %\{global memory, shared memory, register \\
+% %    &  files\} to the \{register file, shared memory, global memory\}.  \\
+% %\hline
+% %\multirow{2}{*}{ $ W_{\{A, B, C\}} $ } & Number of (sub)matrices of $ \{A, B, C\} $ in %\gemm{} and different. \\
+% %                                       & variants (\secref{s:register}) of the \strassen{} primitive.\\
+

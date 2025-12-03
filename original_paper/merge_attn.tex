@@ -1,0 +1,58 @@
+The idea of merging attention outputs from different keys/values originates from Online Softmax~\cite{milakov2018online}. Later this idea was reused in Flash Attention~\cite{fa_v1,fa_v2}. Here we derive the equation to merge the partial attention outputs from different CP ranks.
+
+The scaled dot production attention operates on query/key/value tensors $ Q/K/V$. For simplicity, we don't consider various mask like causal masks (no batching or multiple attention heads either). There is one $Q/K/V$ corresponding to each sequence position. $Q/K/V$ at a given sequence position is a vector in the embedding space. The attention output is defined as
+\[
+O = {\tt Attn}(Q, K, V) = {\tt softmax}\left(\frac{Q K^T}{\sqrt{d}}\right) V,
+\]
+where {\tt softmax} is applied row-wise.
+
+Assuming the size of row is $ R $,
+\[
+    % O = (\sum_{i=0}^{R-1} exp^{Q \cdot K_i^T / \sqrt{d}} \cdot V_i) exp^{-LSE},
+    O = \frac{\sum_{i=0}^{R-1} \text{\tt exp}^{Q \cdot K_i^T / \sqrt{d}} \cdot V_i}{\text{\tt exp}^{LSE}},
+\]
+% $ \text{Attn}(Q, K, V) = \text{softmax}(\frac{Q K^T}{\sqrt{d}}) V $
+where log-sum-exp $ LSE $ is defined as:
+\[
+    LSE = \log\sum_{i=0}^{R-1}\text{\tt exp}^{Q \cdot K_i^T / \sqrt{d}}.
+\]
+In Section \ref{sec:ring-pass-kv-algo}, we calculate the attention output and $LSE$ on each $CP$ rank $ k $:
+\[
+LSE_k^s, O_k^s = \text{\tt Attn}(Q_k, KV^s),
+\]
+with $ s = 0, 1, ..., N-1 $ on CP rank $ k $.
+
+Similar to blocked {\tt softmax} computation in Flash Attention ~\cite{fa_v1,fa_v2} and the derivation process in \cite{juravsky2024hydragen}, we can get
+\begin{equation}
+\large
+    O_k = \frac{\sum_{s=0}^{N-1}(O_k^s \times \text{\tt exp}^{LSE_k^s - LSE_k^{max}})}{\sum_{s=0}^{N-1} \text{\tt exp}^{LSE_k^s - LSE_k^{max}}},
+    \label{eqn:merge_attn}
+\end{equation}
+where
+$ LSE_{k}^{max} = \max_{s=0}^{N-1} LSE_k^s $.
+
+In this way\footnote{Merge attention implementation is open sourced at \url{{https://facebookresearch.github.io/xformers/components/ops.html\#module-xformers.ops.fmha}}.}, we can combine attention output computed on different chunks of K/V for the same query to get attention on the whole K/V.
+%\todo{Shall we give a permalink to the code in facebookresearch/XFormers?}
+
+
+% See https://arxiv.org/abs/2402.05099 The result is equal to
+% log-sum-exp
+
+% \begin{equation}
+%     O_{full} = (Out1 * exp(LSE1) + Out2 * exp(LSE2) + …) / (exp(LSE1) + exp(LSE2) + …) \\
+% \end{equation}
+%
+%     $$ LSE_{full} = log(exp(LSE1) + exp(LSE2) + …) $$
+
+% \url{https://facebookresearch.github.io/xformers/components/ops.html#module-xformers.ops.fmha}
+
+% \url{https://fb.workplace.com/notes/368116699397227/}
+
+% Consider attention with input tensors $ Q/K/V $, and, for simplicity, no mask (no batching or heads either). There is one Q/K/V corresponding to each sequence position. Q/K/V at a given sequence position is a vector in the embedding space (below we omit embedding space indices).
+% For a given query the attention can be represented as
+
+
+% How merge attention will work?
+% https://arxiv.org/pdf/2402.05099
+
+

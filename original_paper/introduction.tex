@@ -1,0 +1,91 @@
+
+\xxftodo{
+\textcolor{red}{
+Contemporary large language models (LLMs), such as Llama~\cite{llama1,llama2,llama3}, Gemini~\cite{team2023gemini,reid2024gemini}, and GPT-4~\cite{achiam2023gpt}, are built with the attention mechanism~\cite{vaswani2017attention} where long context capability is crucial to capture long-range contextual dependencies among tokens.
+For example, OpenAI GPT-4o supports 128K context length~\cite{openai_gpt4}, Anthropic's Claude supports 200K context length~\cite{anthropic_claude}, and Google's Gemini 1.5 Pro supports 1M context length~\cite{google_gemini} in real-world productions.
+While long context capability improves model serving quality, it brings pressure to system performance due to the quadratic time complexity of attention with respect to the context length.
+For example, it takes around 60 seconds to prefill 128K tokens and 1200 seconds to prefill 1M tokens for Llama3 405B model~\cite{llama3} on a single host with 8 H100 GPUs.
+Thus, it is unavoidable to build a distributed GPU system for serving such long context inference to satisfy latency constraints.
+}
+
+\textcolor{red}{
+Among various parallelism to shard model parameters and input tokens in the distributed LLM inference system, \textbf{Context parallelism (CP)} is a parallelism paradigm that shards along the sequence dimension of input tokens while replicating model weights across GPUs.
+At the expense of model weight memory consumption, it shortens inference latency compared to Pipeline Parallelism (PP)~\cite{huang2019gpipe} and reduces the communication traffic of activation tensors compared to Tensor Parallelism (TP)~\cite{shoeybi2019megatron}.
+Thus CP provides an alternative to trade memory consumption with a better system performance of both latency and throughput.
+CP for training LLMs has been prototyped and adopted in both academia (Ring Attention~\cite{liu2023ring}) and industry (All-gather Attention in Llama3~\cite{llama3}).
+}
+
+\textcolor{red}{
+As CP in existing LLM training systems only communicate KV tensors, they often achieve sub-optimal performance across various inference phases due to asymmetric sequence lengths between Q and KV tensors:
+For example, in the multi-turn prefill and decoding, the sequence lengths of Q tensor and KV tensors are the same only at the first prefill request.
+Subsequent prefill (also called partial prefill) and decode stages need to compute attention between new query tokens and existing KV tokens in the KV cache.
+Intuitively, when there are few new Q tokens (e.g., one new token per decoding step), communicating Q tensors is more efficient than communicating KV tensors.
+}
+
+\textcolor{red}{
+In this work, we present a design and implementation of context parallelism for LLM inference for the challenge of asymmetric sequence lengths between Q and KV tensors.
+To the best of our knowledge, this is the first paper to present LLM inference system with the context parallelism for unblocking long context capability.
+We make following contributions in this work:
+}
+
+\begin{itemize}
+    \item \textcolor{red}{We design and implement both Pass-KV and Pass-Q for context parallelism attention to communicate either KV or Q tensors with compute-communication overlapping to hide communication latency.}
+
+    \item \textcolor{red}{We adopt both Pass-KV and Pass-Q into various phases (prefill, partial prefill, and decode) in the inference system, and we provide an adaptive heuristic to pick either Pass-KV or Pass-Q in the runtime to maximize system performance.}
+
+    \item \textcolor{red}{We present a sharding method to distribute tokens into the KV cache across CP ranks to balance the memory consumption of KV cache. Our Pass-KV and Pass-Q attention implementation also adapts into this customized sharding of KV cache.}
+\end{itemize}
+
+\textcolor{red}{
+In essence, our work extends context parallelism from LLM training to efficiently address the challenges and requirements of serving millions of tokens in LLM inference.
+Experimental results show that XXXXXX (key results about system performance, scalability, and memory / communication traffic savings).
+Since our method focuses on system-level optimizations, it can be seamlessly integrated with architectural innovations or algorithmic enhancements to further amplify performance gains.
+}
+}
+
+Contemporary large language models (LLMs), such as Llama~\cite{llama1,llama2,llama3}, Gemini~\cite{team2023gemini,reid2024gemini}, GPT-4~\cite{achiam2023gpt}, require significant computational resources for inference, especially with long context lengths:
+OpenAI GPT-4o 128K context length~\cite{openai_gpt4}, Anthropic's Claude with 200K context length~\cite{anthropic_claude}, Google's Gemini 1.5 Pro with 1M context length~\cite{google_gemini}.
+With a single H100 GPU host (8 GPUs), it can take 60 seconds to serve 128K context length\footnote{Google's Gemini 1.5 Pro (Sep 2024) has a latency of 20.43 seconds for time to first token on 100K context length, from \url{https://artificialanalysis.ai/models/gemini-1-5-pro/prompt-options/single/100k}.} or 1200 seconds to serve 1M context length for Llama3 405B model.
+Context parallelism (CP) is a system optimization technique that improves the latency and scalability of LLM inference, particularly for long contexts. Without modifying the underlying dense attention algorithms, CP offers several advantages for long-context LLM inference:
+\begin{itemize}
+    \item \textbf{Compute parallelization}: CP distributes computation across multiple GPUs in order to reduce latency, in contrast with pipeline parallelization (PP)~\cite{huang2019gpipe} that improves throughput but not latency.
+    \item \textbf{Communication message size reduction}:
+        % Compared to tensor parallelism (TP)~\cite{shoeybi2019megatron}, CP requires less communication bandwidth, especially in multi-host environments, by maintaining a constant overall communication size.
+        Compared to tensor parallelism (TP)~\cite{shoeybi2019megatron}, CP demands less communication bandwidth in multi-host environments, by maintaining a communication size that is orders of magnitude smaller than TP, especially for inter-node communication.
+    \item \textbf{KV cache distribution}: Key and value (KV) embeddings grow linearly with context length. CP distributes the storage of KV embeddings across multiple GPUs, enabling larger batch sizes with the addition of more CP ranks.
+       % CP distributes the storage of key and value (KV) embeddings, which grows linearly with context length, across multiple GPUs, eliminating memory capacity bottlenecks.
+\end{itemize}
+
+To the best of our knowledge, this is the first paper to disclose the system implementation details on applying context parallelism in inference scenario.
+Our main contribution lies in the adaptation and optimization of ring attention~\cite{liu2023ring} for efficient LLM inference with long context lengths. While the previous work primarily focuses on leveraging ring attention to enhance training throughput for long sequences, this paper identifies and addresses unique challenges posed by inference:
+
+% Besides the above advantages for applying context parallelism in LLM inference, here are the key contributions presented in this paper:
+%In particular, we address the following challenges posed by long-context LLM inference:
+
+\begin{itemize}
+
+    \item \textbf {Support for multi-turn prefill and decoding}: We recognize the importance of multi-turn conversations, a common characteristic of online LLM applications.
+        Unlike prior research focused on training, we introduce novel strategies on load-balanced sharding for persistent KV cache and parallelization algorithms that leverage sharded KV cache across multi-turn prefill and decode. These mechanisms are crucial for maintaining conversation history during inference.
+        % Unlike prior research focused on training, we introduce novel strategies for persistent KV caches used for multi-turn prefill, including sharded KV cache management across multi-turn chats and efficient decoding utilizing sharded KV cache with load balancing. These mechanisms are crucial for maintaining conversation history during inference.
+        % {JSP: removed this since IMO it's repeating the preceding sentences} We implement full/partial prefill, and decoding operations within the context of multi-turn interactions, addressing the unique memory and computational demands they impose.
+        % This includes sharded KV cache management across multi-turn chats, persistent KV cache handling with sharded KV, and efficient decoding  utilizing sharded KV cache. These mechanisms are crucial for maintaining conversation history during inference.
+
+    \item \textbf {Optimization for latency}: Latency is critical for user experience in real-time inference. To optimize latency in multi-turn conversations, we developed {\tt pass-KV} and {\tt pass-Q} ring attention variants and heuristics to dynamically select the ring attention algorithms for the lowest latency under varying context lengths and KV cache hit rates.
+       % We focus on minimizing latency, a crucial factor in real-time inference. We compare different ring attention variants, namely {\tt pass-KV} and {\tt pass-Q}, on latency under varying context lengths and KV cache hit rates. Based on this analysis, we develop heuristics for dynamically selecting the performant ring attention approach, further minimizing latency.
+    \item \textbf {Compute and memory load balancing}: To maintain balanced load among CP ranks across batched requests with varying input lengths, we introduce load-balanced sharding of both input tokens and KV cache entries. Previous work targets training typically with uniform sequence length. We proposed innovative algorithms to ensure even distribution of compute and KV cache memory across CP ranks, contributing to improved overall performance and scalability.
+        % \textcolor{red}{nit: to follow the sections order of the paper, we can move this challenge to top of the list}
+    % \item \textbf {Load balancing for KV Cache}: To load imbalance among CP ranks during multi-turn inference with varying input lengths, we introduce load-balanced sharding of both input tokens and KV cache entries. Previous work targets training typically with uniform sequence length. We proposed innovative algorithms to ensure even distribution of workload and memory requirements across CP ranks, contributing to improved overall performance and scalability.
+
+\end{itemize}
+
+In essence, our work extends context parallelism to efficiently address the challenges and requirements of serving millions of tokens in LLM inference. We introduce novel algorithms and heuristics for optimizing ring attention, demonstrating their effectiveness in reducing latency, improving KV cache utilization, and enabling scalable distributed inference for long-context LLMs.
+Since our method focuses on system-level optimizations, it can be seamlessly integrated with architectural innovations or algorithmic enhancements to further amplify performance gains.
+
+% \todo{Add google gemini reference latency on 128K context window: 17 seconds}
+
+% \todo{also add Llama3 CP training parts}
+
+% \todo{add a short survey about existing parallelizations (TP, PP) and why CP stands out to be the best solution for optimizing latency}
+
+
+% {https://docs.nvidia.com/megatron-core/developer-guide/latest/api-guide/context_parallel.html}

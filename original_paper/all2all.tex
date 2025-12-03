@@ -1,0 +1,78 @@
+
+% \todo{Updated the equation with pass-Q \textit{All2All}, please help review the following content.}
+{\tt pass-Q} merge attention requires an \textit{All2All} (Section \ref{sec:ring-pass-q-algo}), whereas in {\tt pass-KV} merge attention only needs to merge the partial attn results on local node (Section \ref{sec:ring-pass-kv-algo}). When {\tt pass-KV} communication is exposed, we want to compare the total of exposed {\tt pass-KV}'s communication time to the {\tt pass-Q}'s \textit{all2all}, which is the time to send partial attention output and partial attention softmax log-sum-exp (LSE) (Appendix \ref{sec:merge-attn}):
+% $$
+% Latency(\textit{All2All}) = \frac {(D+1) \cdot (T+P) \cdot e}{BW}
+% $$
+
+% This means {\tt pass-KV} prefill latency will still be better than {\tt pass-Q} when:
+% $$
+% (N-1) \cdot \left(\frac{2 (T + P) D \cdot e \cdot \frac{N_{KV}}{N_H}}{BW} - \frac{4\cdot T \cdot D (T + P)}{N \cdot C}\right)
+% $$
+% \begin{equation}
+% \label{eqn:pass-kv-le-pass-q-a2a-1}
+% \le \frac {(D+1) \cdot (T+P) \cdot e}{BW}
+% \end{equation}
+% Assuming $ D \approx D+1 $,
+% \begin{equation}
+% \label{eqn:pass-kv-le-pass-q-a2a}
+%     T \ge \frac {e \cdot C \cdot( 2\cdot N \cdot \frac{N_{KV}}{N_H} - \frac{N}{N - 1})}{4 \cdot BW}.
+% \end{equation}
+
+% Here RHS is static if we fix the number of CP ranks given a system.
+
+% \todo {
+% $$
+% Latency(\textit{All2All}) = (N-1) \cdot \frac {(D+1) \cdot T \cdot e \cdot \frac {N_{h}}{N_{kv}} }{BW}
+% $$
+% }
+
+$$
+Latency(\textit{All2All}) = (N-1) \cdot \frac {(D+1) \cdot T \cdot e}{BW}
+$$
+
+This means {\tt pass-Q} has better prefill latency only if:
+$$
+(N-1) \cdot \left(\frac{2 (T + P) D \cdot e \cdot \frac{N_{KV}}{N_H}}{BW} - \frac{4\cdot T \cdot D \cdot (T + P)}{N \cdot C}\right)
+$$
+$$ \ge (N-1) \cdot \frac {(D+1) \cdot T \cdot e}{BW}.
+$$
+Assuming $D \approx D+1 $, through algebraic rearrangement, we get:
+\begin{equation}
+\label{eqn:pass-kv-le-pass-q-a2a-1}
+2 \cdot \frac{N_{KV}}{N_H} - \frac{4T \cdot BW}{N \cdot C \cdot e} \ge \frac{T}{T+P}
+\end{equation}
+Compared to \eqref{eqn:pass-q-vs-kv}, this shows that considering \textit{All2All} decreases the KV cache miss rate threshold for selecting \passq{}.
+
+% \todo{not showing the following since it might be too complicated for the users: this will be specifically helpful for fixed T+P experiment}.
+% For a fixed context length $L = (T + P)$, the range of $T$ where the total {\tt pass-KV} communication latency is exposed but is smaller than the {\tt pass-Q} latency of \textit{All2All}.
+%
+% \begin{equation}
+% \label{eqn:pass-kv-exposed}
+% \frac{2 \cdot \frac{N_{KV}}{N_H}}{\frac{1}{L} + \frac{4BW}{N \cdot C \cdot e}} \le T \le \frac{2 \cdot \frac{N_{KV}}{N_H}}{\frac{4BW}{N \cdot C \cdot e}}
+% \end{equation}
+
+% Here RHS is static if we fix the number of CP ranks given a system.
+
+Algorithm \ref{alg:pass-kv-vs-pass-q-partial-adjusted-all2all} is the adjusted heuristic algorithm to select between \passkv{} and \passq{}, considering \textit{All2All} used in merge attention in \passq{}.
+
+\begin{algorithm}[h]
+    \caption{Pass-KV vs. Pass-Q Partial Prefill Heuristics}
+   \label{alg:pass-kv-vs-pass-q-partial-adjusted-all2all}
+\begin{algorithmic}
+   \IF{
+        % $T \geq N \frac{C \cdot {N_{KV}} \cdot e}{2 \cdot {N_H} \cdot BW} $ or $  \frac{T}{T+P} \geq 2 \frac{N_{KV}}{N_H} $
+        $T \geq N \frac{C \cdot {N_{KV}} \cdot e}{2 \cdot {N_H} \cdot BW} $ or $ {\frac{T}{T+P}} \ge 2 \cdot \frac{N_{KV}}{N_H} - \frac{4T \cdot BW}{N \cdot C \cdot e} $
+   }
+   \STATE pass-KV
+   % \ELSIF{
+   %      $ {\frac{T}{T+P}} \ge 2 \cdot \frac{N_{KV}}{N_H} - \frac{4T \cdot BW}{N \cdot C \cdot e} $
+   % }
+   % \STATE pass-KV
+   \ELSE
+   \STATE pass-Q
+   \ENDIF
+\end{algorithmic}
+\end{algorithm}
+
+

@@ -1,0 +1,35 @@
+\usepackage{multirow}
+\usepackage{balance}
+
+\newcommand{\todo}[1]{{\color{red} #1}}
+\newcommand{\tocheck}[1]{{\color{blue} #1}}
+
+\newlength\savedwidth
+\newcommand\whline{\noalign{\global\savedwidth\arrayrulewidth
+                            \global\arrayrulewidth 1.5pt}%
+           \hline
+           \noalign{\global\arrayrulewidth\savedwidth}}
+
+\newcommand{\passq}{{\tt pass-Q} }
+\newcommand{\passkv}{{\tt pass-KV} }
+
+% \newcommand{\todo}[1]{}
+% \newcommand{\xxftodo}[1]{{\color{red} #1}}
+\newcommand{\xxftodo}[1]{}
+% \newcommand{\tocheck}[1]{}
+
+\newcommand{\torev}[1]{{\color{red} #1}}
+% \newcommand{\torev}[1]{#1}
+
+% \setlength{\textfloatsep}{4pt}
+% \setlength{\dbltextfloatsep}{4pt}
+% \setlength{\dblfloatsep}{4pt}
+% \setlength{\intextsep}{4pt}
+% \setlength{\belowcaptionskip}{-5pt}
+% \setlength{\abovecaptionskip}{-5pt}
+
+%\renewcommand{\baselinestretch}{0.96}
+% \renewcommand{\baselinestretch}{0.989}
+% \renewcommand{\baselinestretch}{0.96}
+
+\renewcommand{\cite}[1]{\citep{#1}}

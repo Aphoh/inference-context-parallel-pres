@@ -1,0 +1,19 @@
+% \subsubsection{A heuristic based on empirical data}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=8cm]{figures/empirical_heuristic.pdf}
+\caption{A heuristic model using empirical data points. Green: prefer \passkv, Red: prefer \passq}
+\label{fig:empirical-heuristic}
+\end{figure}
+
+For practical uses, we further establish a simplified heuristic to choose between {\tt pass-KV} and {\tt pass-Q} based on emprical data points. Particularly we collected data points for various combinations of $T$ and $T/(T+P)$, and establish an empirical formula:
+$$
+h(T, P) = \alpha \cdot \log(T) + \beta \cdot \log\left({T \over T+P}\right) + \gamma
+$$
+We prefer \passkv when $h$ evaluates to a positive value and prefer \passq otherwise. We fit empirical data points to this formula with parameters: $\alpha=-1.059$, $\beta=1.145$ and $\gamma=12.112$, as show in Figure~\ref{fig:empirical-heuristic}. One way to interpret the heuristic is that, for each particular $T$, there is a threshold for $T/(T+P)$ based on which we should switch from \passq to \passkv for best performances, and the threshold increases as $T$ increases.
+
+Note that we do not expect the linear model to perfectly capture all cases, so some misclassifications are present due to variances and other factors, but the general trend is obvious. We inspected the misclassified data points, and they turned out to be the ones where the differences between the two strategies were relatively small ($<1\%$). In practice we can run this heuristic at the beginning of each round and get the best of both worlds.
+
+
+
