@@ -1,7 +1,8 @@
 #import "@preview/touying:0.6.1": *
 #import "@preview/cetz:0.4.2"
 #import "@preview/cetz-plot:0.1.3": chart, plot
-#import "@preview/fletcher:0.5.8" as fletcher: node, edge, diagram
+#import "@preview/fletcher:0.5.8" as fletcher: diagram, edge, node
+#import "@preview/numty:0.0.5" as nt
 #import themes.university: *
 
 #show: university-theme.with(
@@ -18,7 +19,7 @@
 #let fletcher-diagram = touying-reducer.with(reduce: fletcher.diagram, cover: fletcher.hide)
 
 #let smat(..args) = { math.mat(delim: "[", ..args) }
-#let bvec(a) = { math.accent(math.bold(a), math.arrow)}
+#let bvec(a) = { math.accent(math.bold(a), math.arrow) }
 
 // Color palette
 #let colors = (
@@ -40,30 +41,30 @@
 
 For a single query vector $bvec(q)$:
 $
-bvec(a) &= bvec(q) K^T = smat(
-bvec(q) dot bvec(k)_1, bvec(q) dot bvec(k)_2, dots.h, bvec(q) dot bvec(k)_S
-) = smat(
-a_1, a_2, dots.h, a_S
-) \
-"Softmax"(bvec(a)) &= smat((exp(a_1 - m)) / Z, (exp(a_2 - m))/Z, dots.h , (exp(a_S - m)) / Z) \
-"where" m &= max_j a_j, #h(1em) Z = sum_(j=1)^S exp(a_j - m)
-$ 
+             bvec(a) & = bvec(q) K^T = smat(bvec(q) dot bvec(k)_1, bvec(q) dot bvec(k)_2, dots.h, bvec(q) dot bvec(k)_S) = smat(
+                         a_1, a_2, dots.h, a_S
+                       ) \
+  "Softmax"(bvec(a)) & = smat((exp(a_1 - m)) / Z, (exp(a_2 - m))/Z, dots.h, (exp(a_S - m)) / Z) \
+           "where" m & = max_j a_j, #h(1em) Z = sum_(j=1)^S exp(a_j - m)
+$
 
 == Background: Flash Attention
 
 $forall i in {1..S}$
 $
-x_i &= bvec(q) dot bvec(k_i) \
-m_i &= max(m_(i-1), x_i) \
-Z_i &= Z_(i-1)e^(m_(i-1) - m_i) + e^(a_i - m_i) \
-bvec(o)_i &= bvec(o)_(i-1)
-            e^(m_i - m_(i-1))
-            Z_(i-1) / Z_i
-            + e^(x_i - m_i) / Z_i bvec(v_i)
+        x_i & = bvec(q) dot bvec(k_i) \
+        m_i & = max(m_(i-1), x_i) \
+        Z_i & = Z_(i-1)e^(m_(i-1) - m_i) + e^(a_i - m_i) \
+  bvec(o)_i & = bvec(o)_(i-1)
+              e^(m_i - m_(i-1))
+              Z_(i-1) / Z_i
+              + e^(x_i - m_i) / Z_i bvec(v_i)
 $
 
 At $i=S$, $bvec(o)'_S$ is the correct output for query $bvec(q)$.
-#footnote[#link("https://github.com/Aphoh/flash-attention-703/blob/main/main.pdf")[#underline[Flash Attention Explained]]]
+#footnote[#link(
+  "https://github.com/Aphoh/flash-attention-703/blob/main/main.pdf",
+)[#underline[Flash Attention Explained]]]
 
 Define $"FlashAttnBlock"(bvec(q), K, V, bvec(o)_(i-1), m_(i-1), Z_(i-1)) -> (bvec(o)', m, Z)$:
 
@@ -74,17 +75,16 @@ $N$ ranks, ${Q_1, ..., Q_N}, {K_1, ..., K_N}, {V_1, ..., V_N}$
 
 On rank $i$, keep $Q_i$ and compute $forall i in {1..N}$
 $
-bvec(o)_i, m_i, Z_i <- "FlashAttnBlock"(Q_i, bold(K_i), bold(V_i), bvec(o)_i, m_(i-1), Z_(i-1))^
-(\[#footnote[$o_i$ is initialized to zero]\])
-$ 
+  bvec(o)_i, m_i, Z_i <- "FlashAttnBlock"(Q_i, bold(K_i), bold(V_i), bvec(o)_i, m_(i-1), Z_(i-1))^(\[#footnote[$o_i$ is initialized to zero]\])
+$
 
-$bvec(o)$ will have the correct output for $Q_i$ 
+$bvec(o)$ will have the correct output for $Q_i$
 
 == Ring Attention: Communication
 
 #slide(repeat: 5, self => [
   #let (uncover, only) = utils.methods(self)
-  
+
   #align(center)[
     #text(size: 18pt)[
       #only(1)[Step 1: Each rank computes local attention]
@@ -94,126 +94,125 @@ $bvec(o)$ will have the correct output for $Q_i$
       #only(5)[Complete! Each Q has seen all KVs]
     ]
   ]
-  
+
   #v(0.5em)
-  
+
   #align(center)[
-  #cetz.canvas({
-    import cetz.draw: *
-    
-    let self = utils.merge-dicts(
-      self,
-      config-methods(cover: utils.method-wrapper(hide.with(bounds: true))),
-    )
-    let (uncover, only) = utils.methods(self)
-    
-    // Colors (using global palette)
-    let q-color = colors.blue
-    let kv-color = colors.red
-    let node-fill = colors.gray-light
-    let arrow-color = colors.gray
-    
-    // Layout parameters
-    let radius = 3.5
-    let box-size = 0.9
-    let kv-box-w = 0.9
-    let kv-box-h = 0.35
-    
-    // 4 positions: top, right, bottom, left
-    let positions = (
-      (0, radius),      // Rank 0 - top
-      (radius, 0),      // Rank 1 - right  
-      (0, -radius),     // Rank 2 - bottom
-      (-radius, 0),     // Rank 3 - left
-    )
-    
-    // KV offsets for each rank (outside the box)
-    let kv-offsets = (
-      (0, -box-size - 0.5),   // Rank 0: below box
-      (-box-size - 0.7, 0),   // Rank 1: left of box
-      (0, box-size + 0.5),    // Rank 2: above box
-      (box-size + 0.7, 0),    // Rank 3: right of box
-    )
-    
-    // Draw straight arrows between nodes
-    for i in range(4) {
-      let curr = positions.at(i)
-      let next = positions.at(calc.rem(i + 1, 4))
-      
-      // Shorten arrows to not overlap boxes
-      let dx = next.at(0) - curr.at(0)
-      let dy = next.at(1) - curr.at(1)
-      let len = calc.sqrt(dx * dx + dy * dy)
-      let shrink = (box-size + 0.3) / len
-      
-      let start-x = curr.at(0) + dx * shrink
-      let start-y = curr.at(1) + dy * shrink
-      let end-x = next.at(0) - dx * shrink
-      let end-y = next.at(1) - dy * shrink
-      
-      line(
-        (start-x, start-y),
-        (end-x, end-y),
-        stroke: (paint: arrow-color, thickness: 1.5pt, dash: "dashed"),
-        mark: (end: "stealth", fill: arrow-color),
+    #cetz.canvas({
+      import cetz.draw: *
+
+      let self = utils.merge-dicts(
+        self,
+        config-methods(cover: utils.method-wrapper(hide.with(bounds: true))),
       )
-    }
-    
-    // Draw nodes and labels
-    for i in range(4) {
-      let pos = positions.at(i)
-      
-      // Square box
-      rect(
-        (pos.at(0) - box-size, pos.at(1) - box-size),
-        (pos.at(0) + box-size, pos.at(1) + box-size),
-        fill: node-fill,
-        stroke: 1.5pt
+      let (uncover, only) = utils.methods(self)
+
+      // Colors (using global palette)
+      let q-color = colors.blue
+      let kv-color = colors.red
+      let node-fill = colors.gray-light
+      let arrow-color = colors.gray
+
+      // Layout parameters
+      let radius = 3.5
+      let box-size = 0.9
+      let kv-box-w = 0.9
+      let kv-box-h = 0.35
+
+      // 4 positions: top, right, bottom, left
+      let positions = (
+        (0, radius), // Rank 0 - top
+        (radius, 0), // Rank 1 - right
+        (0, -radius), // Rank 2 - bottom
+        (-radius, 0), // Rank 3 - left
       )
-      
-      // Rank label - on top except rank 2 on bottom
-      let label-y = if i == 2 { pos.at(1) - box-size - 0.4 } else { pos.at(1) + box-size + 0.4 }
-      content(
-        (pos.at(0), label-y),
-        text(size: 12pt, weight: "bold")[Rank #i]
+
+      // KV offsets for each rank (outside the box)
+      let kv-offsets = (
+        (0, -box-size - 0.5), // Rank 0: below box
+        (-box-size - 0.7, 0), // Rank 1: left of box
+        (0, box-size + 0.5), // Rank 2: above box
+        (box-size + 0.7, 0), // Rank 3: right of box
       )
-      
-      // Q in the middle (code font, no subscript)
-      content(
-        pos,
-        text(fill: q-color, weight: "bold", size: 14pt, font: "Menlo")[Q#i]
-      )
-    }
-    
-    // Animate KV positions based on subslide
-    for kv-idx in range(4) {
-      let get-rank(step) = calc.rem(kv-idx + step - 1, 4)
-      
-      for step in range(1, 6) {
-        only(step, {
-          let rank = get-rank(step)
-          let pos = positions.at(rank)
-          let offset = kv-offsets.at(rank)
-          let kv-x = pos.at(0) + offset.at(0)
-          let kv-y = pos.at(1) + offset.at(1)
-          
-          // Draw rectangle around KV
-          rect(
-            (kv-x - kv-box-w, kv-y - kv-box-h),
-            (kv-x + kv-box-w, kv-y + kv-box-h),
-            fill: rgb("#fef2f2"),
-            stroke: (paint: kv-color, thickness: 1pt),
-            radius: 0.1
-          )
-          content(
-            (kv-x, kv-y),
-            text(fill: kv-color, weight: "bold", size: 11pt, font: "Menlo")[K#kv-idx V#kv-idx]
-          )
-        })
+
+      // Draw straight arrows between nodes
+      for i in range(4) {
+        let curr = positions.at(i)
+        let next = positions.at(calc.rem(i + 1, 4))
+
+        // Shorten arrows to not overlap boxes
+        let dx = next.at(0) - curr.at(0)
+        let dy = next.at(1) - curr.at(1)
+        let len = calc.sqrt(dx * dx + dy * dy)
+        let shrink = (box-size + 0.3) / len
+
+        let start-x = curr.at(0) + dx * shrink
+        let start-y = curr.at(1) + dy * shrink
+        let end-x = next.at(0) - dx * shrink
+        let end-y = next.at(1) - dy * shrink
+
+        line(
+          (start-x, start-y),
+          (end-x, end-y),
+          stroke: (paint: arrow-color, thickness: 1.5pt, dash: "dashed"),
+          mark: (end: "stealth", fill: arrow-color),
+        )
       }
-    }
-    
-  })
+
+      // Draw nodes and labels
+      for i in range(4) {
+        let pos = positions.at(i)
+
+        // Square box
+        rect(
+          (pos.at(0) - box-size, pos.at(1) - box-size),
+          (pos.at(0) + box-size, pos.at(1) + box-size),
+          fill: node-fill,
+          stroke: 1.5pt,
+        )
+
+        // Rank label - on top except rank 2 on bottom
+        let label-y = if i == 2 { pos.at(1) - box-size - 0.4 } else { pos.at(1) + box-size + 0.4 }
+        content(
+          (pos.at(0), label-y),
+          text(size: 12pt, weight: "bold")[Rank #i],
+        )
+
+        // Q in the middle (code font, no subscript)
+        content(
+          pos,
+          text(fill: q-color, weight: "bold", size: 14pt, font: "Menlo")[Q#i],
+        )
+      }
+
+      // Animate KV positions based on subslide
+      for kv-idx in range(4) {
+        let get-rank(step) = calc.rem(kv-idx + step - 1, 4)
+
+        for step in range(1, 6) {
+          only(step, {
+            let rank = get-rank(step)
+            let pos = positions.at(rank)
+            let offset = kv-offsets.at(rank)
+            let kv-x = pos.at(0) + offset.at(0)
+            let kv-y = pos.at(1) + offset.at(1)
+
+            // Draw rectangle around KV
+            rect(
+              (kv-x - kv-box-w, kv-y - kv-box-h),
+              (kv-x + kv-box-w, kv-y + kv-box-h),
+              fill: rgb("#fef2f2"),
+              stroke: (paint: kv-color, thickness: 1pt),
+              radius: 0.1,
+            )
+            content(
+              (kv-x, kv-y),
+              text(fill: kv-color, weight: "bold", size: 11pt, font: "Menlo")[K#kv-idx V#kv-idx],
+            )
+          })
+        }
+      }
+    })
   ]
 ])
 
@@ -221,22 +220,24 @@ $bvec(o)$ will have the correct output for $Q_i$
 
 For $N$ ranks, sequence length $T$, model dim $D_q$, $N_H$ query heads, $N_(K V)$ KV heads:, $e$ bytes/element
 
-#table(columns: 2, inset: 15pt,
-  [*FLOPS*],  [ $2 T^2 D$],
+#table(
+  columns: 2,
+  inset: 15pt,
+  [*FLOPS*], [ $2 T^2 D$],
   [*Q bytes*], [$T D e$],
-  [*KV bytes*], [$2 T D (N_(K V)) / (N_H) e$]
+  [*KV bytes*], [$2 T D (N_(K V)) / (N_H) e$],
 )
 
-*Computation*: $display((2 T^2 D) / N)$ FLOPs
+*Computation*: $(2 T^2 D) / N$ FLOPs
 
-*Communication* (unidirectional): $display(2 T D (N_(K V)) / (N_H) e)$ bytes
+*Communication* (unidirectional): $2 T D (N_(K V)) / (N_H) e$ bytes
 #let BW = $"BW"$
 
 Overlap condition: $ (2 T^2 D / N) / C >= (2 T D (N_(K V) / N_H) e) / BW $
 
 $
-  T / (C N) &>= (N_(K V) e) / (N_H BW) \
-  T &>= N (N_(K V) / N_H)  ((C e) / (BW))
+  T / (C N) & >= (N_(K V) e) / (N_H BW) \
+          T & >= N (N_(K V) / N_H) ((C e) / (BW))
 $
 
 #let sci(a, x) = a * calc.pow(10, x)
@@ -261,52 +262,52 @@ $(C e)/BW$ for Blackwell IFB is $approx$#(blackwell_c_fp4 * 0.5 / blackwell_ifb_
 // TODO: add deepseek v3 https://verda.com/blog/multi-head-latent-attention-benefits-in-memory-and-computation
 
 // Compute T_min for each config
-#let llama_fp4_nvl =  t_min(8, llama_nkv, llama_nh, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
-#let llama_fp8_nvl =  t_min(8, llama_nkv, llama_nh, 1, blackwell_c_fp8, blackwell_nvlink_bw)
+#let llama_fp4_nvl = t_min(8, llama_nkv, llama_nh, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
+#let llama_fp8_nvl = t_min(8, llama_nkv, llama_nh, 1, blackwell_c_fp8, blackwell_nvlink_bw)
 #let gptoss_fp4_nvl = t_min(8, gptoss_nkv, gptoss_nh, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
-#let  llama_fp4_ib =  t_min(8, llama_nkv, llama_nh, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
-#let  llama_fp8_ib =  t_min(8, llama_nkv, llama_nh, 1, blackwell_c_fp8, blackwell_ifb_bw)
-#let gptoss_fp4_ib =  t_min(8, gptoss_nkv, gptoss_nh, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
+#let llama_fp4_ib = t_min(8, llama_nkv, llama_nh, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
+#let llama_fp8_ib = t_min(8, llama_nkv, llama_nh, 1, blackwell_c_fp8, blackwell_ifb_bw)
+#let gptoss_fp4_ib = t_min(8, gptoss_nkv, gptoss_nh, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
 
 Minimum $T$ for communication overlap (8 $times$ B200) #footnote[Infiniband unidirectional @ 200GB/s, 4.5e12 FP8 FLOPS, 9e12 FP4 FLOPS]:
 
 #align(center)[
   #set text(font: "Menlo", size: 14pt)
-#cetz.canvas({
-  import cetz.draw: *
-  
-  let data = (
-    ([GPT-OSS   FP4 NVL], gptoss_fp4_nvl),
-    ([Llama405B FP4 NVL], llama_fp4_nvl),
-    ([Llama405B FP8 NVL], llama_fp8_nvl),
-    ([GPT-OSS   FP4 IFB], gptoss_fp4_ib),
-    ([Llama405B FP4 IFB], llama_fp4_ib),
-    ([Llama405B FP8 IFB], llama_fp8_ib),
-  )
-  
-  set-style(barchart: (bar-width: 0.6))
-  chart.barchart(
-    size: (8, 5),
-    label-key: 0,
-    value-key: 1,
-    data,
-    x-label: [$T_min$ (tokens)],
-    x-tick-step: 4000,
-    x-format: x => text(size: 12pt)[#(plot.formats.sci(x))],
-    bar-style: (idx) => {
-      // NVLink (first 3): blues/greens, IB (last 3): reds/oranges
-      let bar-colors = (
-        colors.red,          // GPT-OSS FP4 NVLink
-        colors.blue,         // Llama FP4 NVLink
-        colors.blue-light,   // Llama FP8 NVLink
-        colors.orange,       // GPT-OSS FP4 IB
-        colors.purple,       // Llama FP4 IB
-        colors.purple-light, // Llama FP8 IB
-      )
-      (fill: bar-colors.at(idx), stroke: none)
-    }
-  )
-})
+  #cetz.canvas({
+    import cetz.draw: *
+
+    let data = (
+      ([GPT-OSS   FP4 NVL], gptoss_fp4_nvl),
+      ([Llama405B FP4 NVL], llama_fp4_nvl),
+      ([Llama405B FP8 NVL], llama_fp8_nvl),
+      ([GPT-OSS   FP4 IFB], gptoss_fp4_ib),
+      ([Llama405B FP4 IFB], llama_fp4_ib),
+      ([Llama405B FP8 IFB], llama_fp8_ib),
+    )
+
+    set-style(barchart: (bar-width: 0.6))
+    chart.barchart(
+      size: (8, 5),
+      label-key: 0,
+      value-key: 1,
+      data,
+      x-label: [$T_min$ (tokens)],
+      x-tick-step: 4000,
+      x-format: x => text(size: 12pt)[#(plot.formats.sci(x))],
+      bar-style: idx => {
+        // NVLink (first 3): blues/greens, IB (last 3): reds/oranges
+        let bar-colors = (
+          colors.red, // GPT-OSS FP4 NVLink
+          colors.blue, // Llama FP4 NVLink
+          colors.blue-light, // Llama FP8 NVLink
+          colors.orange, // GPT-OSS FP4 IB
+          colors.purple, // Llama FP4 IB
+          colors.purple-light, // Llama FP8 IB
+        )
+        (fill: bar-colors.at(idx), stroke: none)
+      },
+    )
+  })
 ]
 
 
@@ -317,21 +318,23 @@ Llama405B $N_H / N_(K V) = 128 / 8 = 16$
 == Context Parallel with Prefixes
 With $P$ cached tokens,
 
-#table(columns: 2, inset: 15pt,
-  [*FLOPS*],  [ $2 T(P + T) D$],
+#table(
+  columns: 2,
+  inset: 15pt,
+  [*FLOPS*], [ $2 T(P + T) D$],
   [*Q bytes*], [$T D e$],
-  [*KV bytes*], [$2 (P + T) D (N_(K V)) / (N_H) e$]
+  [*KV bytes*], [$2 (P + T) D (N_(K V)) / (N_H) e$],
 )
 
-*Computation*: $display((2 T(P + T) D) / N)$ FLOPs
+*Computation*: $display((2 (P + T)T D) / N)$ FLOPs
 
 *Communication* (unidirectional): $display(2 (P + T) D (N_(K V)) / (N_H) e)$ bytes
 
-Overlap condition: 
-$ 
-(2 T(P + T) D) /(C N) &>= (2 (P + T) D (N_(K V)) / (N_H) e) / BW  \
-  T / (C N) &>= N_(K V)/N_H e/BW \
-  T &>= N N_(K V) / N_H  (C e) / BW 
+Overlap condition:
+$
+  (2 T(P + T) D) /(C N) & >= (2 (P + T) D (N_(K V)) / (N_H) e) / BW \
+              T / (C N) & >= N_(K V)/N_H e/BW \
+                      T & >= N N_(K V) / N_H (C e) / BW
 $
 #pause #emoji.excl it's the same!
 
@@ -349,7 +352,7 @@ What if we ring-pass queries?
 
 #slide(repeat: 6, self => [
   #let (uncover, only) = utils.methods(self)
-  
+
   #align(center)[
     #text(size: 18pt)[
       #only(1)[Step 1: Each rank computes local attention, stores $(o, m, Z)$]
@@ -360,105 +363,105 @@ What if we ring-pass queries?
       #only(6)[Done! Each rank has all partials for its own Q]
     ]
   ]
-  
+
   #v(0.5em)
-  
+
   #align(center + horizon)[
-  #cetz.canvas({
-    import cetz.draw: *
-    
-    let self = utils.merge-dicts(
-      self,
-      config-methods(cover: utils.method-wrapper(hide.with(bounds: true))),
-    )
-    let (uncover, only) = utils.methods(self)
-    
-    // Colors (using global palette)
-    let q-color = colors.blue
-    let kv-color = colors.red
-    let state-color = colors.green
-    let node-fill = colors.gray-light
-    let arrow-color = colors.gray
-    
-    // Layout parameters
-    let radius = 3.0
-    let box-size = 0.75
-    let q-box-w = 0.5
-    let q-box-h = 0.3
-    let state-box-w = 0.75
-    let state-box-h = 0.2
-    
-    // 4 positions: top, right, bottom, left
-    let positions = (
-      (0, radius),      // Rank 0 - top
-      (radius, 0),      // Rank 1 - right  
-      (0, -radius),     // Rank 2 - bottom
-      (-radius, 0),     // Rank 3 - left
-    )
-    
-    // Q offsets (outside the box)
-    let q-offsets = (
-      (0, -box-size - 0.4),   // Rank 0: below box
-      (-box-size - 0.55, 0),  // Rank 1: left of box
-      (0, box-size + 0.4),    // Rank 2: above box
-      (box-size + 0.55, 0),   // Rank 3: right of box
-    )
-    
-    // State offsets (on the other side, more spaced out)
-    let state-offsets = (
-      (0, box-size + 1.3),    // Rank 0: above box
-      (box-size + 1.5, 0),    // Rank 1: right of box
-      (0, -box-size - 1.3),   // Rank 2: below box
-      (-box-size - 1.5, 0),   // Rank 3: left of box
-    )
-    
-    // Draw arrows - ring for steps 1-4, all-to-all for steps 5-6
-    // Steps 1-4: Ring arrows
-    for step in range(1, 5) {
-      only(step, {
-        for i in range(4) {
-          let curr = positions.at(i)
-          let next = positions.at(calc.rem(i + 1, 4))
-          
-          let dx = next.at(0) - curr.at(0)
-          let dy = next.at(1) - curr.at(1)
-          let len = calc.sqrt(dx * dx + dy * dy)
-          let shrink = (box-size + 0.3) / len
-          
-          let start-x = curr.at(0) + dx * shrink
-          let start-y = curr.at(1) + dy * shrink
-          let end-x = next.at(0) - dx * shrink
-          let end-y = next.at(1) - dy * shrink
-          
-          line(
-            (start-x, start-y),
-            (end-x, end-y),
-            stroke: (paint: arrow-color, thickness: 1.5pt, dash: "dashed"),
-            mark: (end: "stealth", fill: arrow-color),
-          )
-        }
-      })
-    }
-    
-    // Step 5: All-to-All arrows and label
-    let a2a-color = colors.orange
-    only(5, {
+    #cetz.canvas({
+      import cetz.draw: *
+
+      let self = utils.merge-dicts(
+        self,
+        config-methods(cover: utils.method-wrapper(hide.with(bounds: true))),
+      )
+      let (uncover, only) = utils.methods(self)
+
+      // Colors (using global palette)
+      let q-color = colors.blue
+      let kv-color = colors.red
+      let state-color = colors.green
+      let node-fill = colors.gray-light
+      let arrow-color = colors.gray
+
+      // Layout parameters
+      let radius = 3.0
+      let box-size = 0.75
+      let q-box-w = 0.5
+      let q-box-h = 0.3
+      let state-box-w = 0.75
+      let state-box-h = 0.2
+
+      // 4 positions: top, right, bottom, left
+      let positions = (
+        (0, radius), // Rank 0 - top
+        (radius, 0), // Rank 1 - right
+        (0, -radius), // Rank 2 - bottom
+        (-radius, 0), // Rank 3 - left
+      )
+
+      // Q offsets (outside the box)
+      let q-offsets = (
+        (0, -box-size - 0.4), // Rank 0: below box
+        (-box-size - 0.55, 0), // Rank 1: left of box
+        (0, box-size + 0.4), // Rank 2: above box
+        (box-size + 0.55, 0), // Rank 3: right of box
+      )
+
+      // State offsets (on the other side, more spaced out)
+      let state-offsets = (
+        (0, box-size + 1.3), // Rank 0: above box
+        (box-size + 1.5, 0), // Rank 1: right of box
+        (0, -box-size - 1.3), // Rank 2: below box
+        (-box-size - 1.5, 0), // Rank 3: left of box
+      )
+
+      // Draw arrows - ring for steps 1-4, all-to-all for steps 5-6
+      // Steps 1-4: Ring arrows
+      for step in range(1, 5) {
+        only(step, {
+          for i in range(4) {
+            let curr = positions.at(i)
+            let next = positions.at(calc.rem(i + 1, 4))
+
+            let dx = next.at(0) - curr.at(0)
+            let dy = next.at(1) - curr.at(1)
+            let len = calc.sqrt(dx * dx + dy * dy)
+            let shrink = (box-size + 0.3) / len
+
+            let start-x = curr.at(0) + dx * shrink
+            let start-y = curr.at(1) + dy * shrink
+            let end-x = next.at(0) - dx * shrink
+            let end-y = next.at(1) - dy * shrink
+
+            line(
+              (start-x, start-y),
+              (end-x, end-y),
+              stroke: (paint: arrow-color, thickness: 1.5pt, dash: "dashed"),
+              mark: (end: "stealth", fill: arrow-color),
+            )
+          }
+        })
+      }
+
+      // Step 5: All-to-All arrows and label
+      let a2a-color = colors.orange
+      only(5, {
         // Draw bidirectional arrows between all pairs
         for i in range(4) {
           for j in range(i + 1, 4) {
             let p1 = positions.at(i)
             let p2 = positions.at(j)
-            
+
             let dx = p2.at(0) - p1.at(0)
             let dy = p2.at(1) - p1.at(1)
             let len = calc.sqrt(dx * dx + dy * dy)
             let shrink = (box-size + 0.25) / len
-            
+
             let start-x = p1.at(0) + dx * shrink
             let start-y = p1.at(1) + dy * shrink
             let end-x = p2.at(0) - dx * shrink
             let end-y = p2.at(1) - dy * shrink
-            
+
             line(
               (start-x, start-y),
               (end-x, end-y),
@@ -467,179 +470,346 @@ What if we ring-pass queries?
             )
           }
         }
-        
+
         // Central "All2All" label
         rect(
           (-0.8, -0.35),
           (0.8, 0.35),
           fill: rgb("#fff7ed"),
           stroke: (paint: a2a-color, thickness: 1.5pt),
-          radius: 0.15
+          radius: 0.15,
         )
         content(
           (0, 0),
-          text(fill: a2a-color, weight: "bold", size: 12pt)[All2All]
+          text(fill: a2a-color, weight: "bold", size: 12pt)[All2All],
         )
       })
-    
-    // Draw nodes with KV (fixed) and labels inside
-    for i in range(4) {
-      let pos = positions.at(i)
-      
-      // Square box
-      rect(
-        (pos.at(0) - box-size, pos.at(1) - box-size),
-        (pos.at(0) + box-size, pos.at(1) + box-size),
-        fill: node-fill,
-        stroke: 1.5pt
-      )
-      
-      // Rank label inside the box at the top
-      content(
-        (pos.at(0), pos.at(1) + box-size - 0.22),
-        text(size: 10pt, weight: "bold")[Rank #i]
-      )
-      
-      // KV stays fixed in the middle-bottom
-      content(
-        (pos.at(0), pos.at(1) - 0.15),
-        text(fill: kv-color, weight: "bold", size: 12pt, font: "Menlo")[K#i V#i]
-      )
-    }
-    
-    // Animate Q positions based on subslide
-    for q-idx in range(4) {
-      let get-rank(step) = calc.rem(q-idx + step - 1, 4)
-      
-      // Steps 1-4: Q's rotate around the ring
-      for step in range(1, 5) {
-        only(step, {
-          let rank = get-rank(step)
-          let pos = positions.at(rank)
-          let offset = q-offsets.at(rank)
-          let q-x = pos.at(0) + offset.at(0)
-          let q-y = pos.at(1) + offset.at(1)
-          
-          rect(
-            (q-x - q-box-w, q-y - q-box-h),
-            (q-x + q-box-w, q-y + q-box-h),
-            fill: rgb("#eff6ff"),
-            stroke: (paint: q-color, thickness: 1pt),
-            radius: 0.08
-          )
-          content(
-            (q-x, q-y),
-            text(fill: q-color, weight: "bold", size: 12pt, font: "Menlo")[Q#q-idx]
-          )
-        })
+
+      // Draw nodes with KV (fixed) and labels inside
+      for i in range(4) {
+        let pos = positions.at(i)
+
+        // Square box
+        rect(
+          (pos.at(0) - box-size, pos.at(1) - box-size),
+          (pos.at(0) + box-size, pos.at(1) + box-size),
+          fill: node-fill,
+          stroke: 1.5pt,
+        )
+
+        // Rank label inside the box at the top
+        content(
+          (pos.at(0), pos.at(1) + box-size - 0.22),
+          text(size: 10pt, weight: "bold")[Rank #i],
+        )
+
+        // KV stays fixed in the middle-bottom
+        content(
+          (pos.at(0), pos.at(1) - 0.15),
+          text(fill: kv-color, weight: "bold", size: 12pt, font: "Menlo")[K#i V#i],
+        )
       }
-      
-      // Steps 5-6: Q's return to their original rank
-      for step in (5, 6) {
-        only(step, {
-          let rank = q-idx  // Q returns to its home rank
-          let pos = positions.at(rank)
-          let offset = q-offsets.at(rank)
-          let q-x = pos.at(0) + offset.at(0)
-          let q-y = pos.at(1) + offset.at(1)
-          
-          rect(
-            (q-x - q-box-w, q-y - q-box-h),
-            (q-x + q-box-w, q-y + q-box-h),
-            fill: rgb("#eff6ff"),
-            stroke: (paint: q-color, thickness: 1pt),
-            radius: 0.08
-          )
-          content(
-            (q-x, q-y),
-            text(fill: q-color, weight: "bold", size: 12pt, font: "Menlo")[Q#q-idx]
-          )
-        })
-      }
-    }
-    
-    // Show computed attention results accumulating at each rank
-    // For rank r, track which Q's have visited and computed Attn(Qi, KrVr)
-    // Q rotation: Q_i is at rank (i + step - 1) mod 4 at step
-    // So rank r has Q_(r - step + 1 mod 4) at step
-    
-    // Precompute which Q visits each rank at each step
-    let get-q-at-rank(rank, step) = calc.rem(rank - step + 1 + 4, 4)
-    let state-text-color = rgb("#166534")  // darker green for readability
-    let final-color = colors.purple  // color for final result
-    
-    for rank in range(4) {
-      let pos = positions.at(rank)
-      let offset = state-offsets.at(rank)
-      let state-x = pos.at(0) + offset.at(0)
-      let state-y = pos.at(1) + offset.at(1)
-      
-      // Steps 1-4: Show accumulating partials (different Q's, same KV)
-      for step in range(1, 5) {
-        only(step, {
-          let computed = ()
-          for s in range(1, step + 1) {
-            let q-id = get-q-at-rank(rank, s)
-            computed.push("A(Q" + str(q-id) + ",K" + str(rank) + "V" + str(rank) + ")")
-          }
-          
-          let num-items = computed.len()
-          let item-height = 0.35
-          let box-height = num-items * item-height + 0.15
-          
-          rect(
-            (state-x - state-box-w - 0.4, state-y - box-height / 2),
-            (state-x + state-box-w + 0.4, state-y + box-height / 2),
-            fill: rgb("#f0fdf4"),
-            stroke: (paint: state-color, thickness: 1pt),
-            radius: 0.08
-          )
-          
-          for (idx, item) in computed.enumerate() {
-            let y-pos = state-y + box-height / 2 - 0.22 - idx * item-height
-            content(
-              (state-x, y-pos),
-              text(fill: state-text-color, size: 10pt, font: "Menlo")[#item]
+
+      // Animate Q positions based on subslide
+      for q-idx in range(4) {
+        let get-rank(step) = calc.rem(q-idx + step - 1, 4)
+
+        // Steps 1-4: Q's rotate around the ring
+        for step in range(1, 5) {
+          only(step, {
+            let rank = get-rank(step)
+            let pos = positions.at(rank)
+            let offset = q-offsets.at(rank)
+            let q-x = pos.at(0) + offset.at(0)
+            let q-y = pos.at(1) + offset.at(1)
+
+            rect(
+              (q-x - q-box-w, q-y - q-box-h),
+              (q-x + q-box-w, q-y + q-box-h),
+              fill: rgb("#eff6ff"),
+              stroke: (paint: q-color, thickness: 1pt),
+              radius: 0.08,
             )
-          }
-        })
-      }
-      
-      // Steps 5-6: After All2All, show own Q with all KVs
-      for step in (5, 6) {
-        only(step, {
-          let computed = ()
-          for kv-id in range(4) {
-            computed.push("A(Q" + str(rank) + ",K" + str(kv-id) + "V" + str(kv-id) + ")")
-          }
-          
-          let num-items = computed.len()
-          let item-height = 0.35
-          let box-height = num-items * item-height + 0.15
-          
-          let box-fill = if step == 6 { rgb("#faf5ff") } else { rgb("#f0fdf4") }
-          let box-stroke = if step == 6 { final-color } else { state-color }
-          let text-color = if step == 6 { rgb("#6b21a8") } else { state-text-color }
-          
-          rect(
-            (state-x - state-box-w - 0.4, state-y - box-height / 2),
-            (state-x + state-box-w + 0.4, state-y + box-height / 2),
-            fill: box-fill,
-            stroke: (paint: box-stroke, thickness: 1pt),
-            radius: 0.08
-          )
-          
-          for (idx, item) in computed.enumerate() {
-            let y-pos = state-y + box-height / 2 - 0.22 - idx * item-height
             content(
-              (state-x, y-pos),
-              text(fill: text-color, size: 10pt, font: "Menlo")[#item]
+              (q-x, q-y),
+              text(fill: q-color, weight: "bold", size: 12pt, font: "Menlo")[Q#q-idx],
             )
-          }
-        })
+          })
+        }
+
+        // Steps 5-6: Q's return to their original rank
+        for step in (5, 6) {
+          only(step, {
+            let rank = q-idx // Q returns to its home rank
+            let pos = positions.at(rank)
+            let offset = q-offsets.at(rank)
+            let q-x = pos.at(0) + offset.at(0)
+            let q-y = pos.at(1) + offset.at(1)
+
+            rect(
+              (q-x - q-box-w, q-y - q-box-h),
+              (q-x + q-box-w, q-y + q-box-h),
+              fill: rgb("#eff6ff"),
+              stroke: (paint: q-color, thickness: 1pt),
+              radius: 0.08,
+            )
+            content(
+              (q-x, q-y),
+              text(fill: q-color, weight: "bold", size: 12pt, font: "Menlo")[Q#q-idx],
+            )
+          })
+        }
       }
-    }
-    
-  })
+
+      // Show computed attention results accumulating at each rank
+      // For rank r, track which Q's have visited and computed Attn(Qi, KrVr)
+      // Q rotation: Q_i is at rank (i + step - 1) mod 4 at step
+      // So rank r has Q_(r - step + 1 mod 4) at step
+
+      // Precompute which Q visits each rank at each step
+      let get-q-at-rank(rank, step) = calc.rem(rank - step + 1 + 4, 4)
+      let state-text-color = rgb("#166534") // darker green for readability
+      let final-color = colors.purple // color for final result
+
+      for rank in range(4) {
+        let pos = positions.at(rank)
+        let offset = state-offsets.at(rank)
+        let state-x = pos.at(0) + offset.at(0)
+        let state-y = pos.at(1) + offset.at(1)
+
+        // Steps 1-4: Show accumulating partials (different Q's, same KV)
+        for step in range(1, 5) {
+          only(step, {
+            let computed = ()
+            for s in range(1, step + 1) {
+              let q-id = get-q-at-rank(rank, s)
+              computed.push("A(Q" + str(q-id) + ",K" + str(rank) + "V" + str(rank) + ")")
+            }
+
+            let num-items = computed.len()
+            let item-height = 0.35
+            let box-height = num-items * item-height + 0.15
+
+            rect(
+              (state-x - state-box-w - 0.4, state-y - box-height / 2),
+              (state-x + state-box-w + 0.4, state-y + box-height / 2),
+              fill: rgb("#f0fdf4"),
+              stroke: (paint: state-color, thickness: 1pt),
+              radius: 0.08,
+            )
+
+            for (idx, item) in computed.enumerate() {
+              let y-pos = state-y + box-height / 2 - 0.22 - idx * item-height
+              content(
+                (state-x, y-pos),
+                text(fill: state-text-color, size: 10pt, font: "Menlo")[#item],
+              )
+            }
+          })
+        }
+
+        // Steps 5-6: After All2All, show own Q with all KVs
+        for step in (5, 6) {
+          only(step, {
+            let computed = ()
+            for kv-id in range(4) {
+              computed.push("A(Q" + str(rank) + ",K" + str(kv-id) + "V" + str(kv-id) + ")")
+            }
+
+            let num-items = computed.len()
+            let item-height = 0.35
+            let box-height = num-items * item-height + 0.15
+
+            let box-fill = if step == 6 { rgb("#faf5ff") } else { rgb("#f0fdf4") }
+            let box-stroke = if step == 6 { final-color } else { state-color }
+            let text-color = if step == 6 { rgb("#6b21a8") } else { state-text-color }
+
+            rect(
+              (state-x - state-box-w - 0.4, state-y - box-height / 2),
+              (state-x + state-box-w + 0.4, state-y + box-height / 2),
+              fill: box-fill,
+              stroke: (paint: box-stroke, thickness: 1pt),
+              radius: 0.08,
+            )
+
+            for (idx, item) in computed.enumerate() {
+              let y-pos = state-y + box-height / 2 - 0.22 - idx * item-height
+              content(
+                (state-x, y-pos),
+                text(fill: text-color, size: 10pt, font: "Menlo")[#item],
+              )
+            }
+          })
+        }
+      }
+    })
   ]
 ])
+
+
+== Q-Passing Roofline
+
+
+#table(
+  columns: 2,
+  inset: 15pt,
+  [*FLOPS*], [ $2 T(P + T) D$],
+  [*Q bytes*], [$T D e$],
+  [*KV bytes*], [$2 (P + T) D (N_(K V)) / (N_H) e$],
+)
+
+*Computation*: $display((2 T(P + T) D) / N)$ FLOPs
+
+*Communication* (unidirectional): $bold(T D e)$ bytes
+#pagebreak()
+
+Overlap condition:
+$
+  (2 T(P + T) D) /(C N) & >= (T D e) / BW \
+                  P + T & >= N / 2 (C e) / BW
+$
+
+Doesn't depend on $N_H, N_(K V)$
+
+#pagebreak()
+
+// Pass-Q: (P+T)_min = N/2 * C * e / BW
+// Note: C*e is the same for FP4 and FP8! (9e15 * 0.5 = 4.5e15 * 1 = 4.5e15)
+#let passq_min(n, c, e, bw) = n / 2 * c * e / bw
+
+#let passq_fp8_nvl = passq_min(8, blackwell_c_fp8, 1, blackwell_nvlink_bw)
+#let passq_fp8_ib = passq_min(8, blackwell_c_fp8, 1, blackwell_ifb_bw)
+
+
+Minimum $(P + T)$ for communication overlap (8 $times$ B200):
+
+#align(center)[
+  #set text(font: "Menlo", size: 14pt)
+  #cetz.canvas({
+    import cetz.draw: *
+
+    let data = (
+      ([NVLink], passq_fp8_nvl),
+      ([IFB   ], passq_fp8_ib),
+    )
+
+    set-style(barchart: (bar-width: 0.6))
+    chart.barchart(
+      size: (8, 4),
+      label-key: 0,
+      value-key: 1,
+      data,
+      x-label: [$(P + T)_min$ (tokens)],
+      x-tick-step: 20000,
+      x-format: x => text(size: 12pt)[#(plot.formats.sci(x))],
+      bar-style: idx => {
+        let bar-colors = (
+          colors.blue, // FP4 NVLink
+          colors.blue-light, // FP8 NVLink
+          colors.purple, // FP4 IB
+          colors.purple-light, // FP8 IB
+        )
+        (fill: bar-colors.at(idx), stroke: none)
+      },
+    )
+  })
+]
+
+Note: $C dot e$ is the same for FP4 and FP8, so model doesn't matter!
+
+Requires balanced KVs across ranks (round-robin during decode)
+
+== All-to-All cost
+
+All-to-All time in a ring is roughly #footnote[
+  #link("https://jax-ml.github.io/scaling-book/sharding/#our-final-communication-primitive-the-alltoall")[
+    #underline("See this derivation")
+    ]
+  ]
+$
+  T_"all2all" = (T D e) / (4 BW)
+$
+
+All-to-All time in NVL72 is just $(T D e) / (N BW)$
+
+Need to check if $T_"all2all" < (T_"kv,comm" - T_"kv,compute")$
+
+== All-to-All cost
+
+$
+  T_"kv,comm" - T_"kv,compute" &= 2 (P + T) D (N_(K V)) / (N_H) e / BW - (2 (P + T) T D) / (N C) \
+  &= 2(P+T) D ( N_(K V) / N_H e / BW- T / (N C)) \
+
+ (T D e) / (4 BW) &< T_"kv,comm" - T_"kv,compute" \
+
+$
+
+Ends up being quadratic... hand it to `sympy`, solve for $T$ and plot
+
+
+== $T_max$ vs Prefix Length
+
+#let t_max(P, N, n_kv, n_h, bw, c, e) = {
+  // From: t_all2all < t_kv_comm - t_kv_compute
+  // Coefficients of quadratic α·T² + β·T + γ < 0
+  let alpha = 2 / (c * N)
+  let beta = 2 * P / (c * N) + e / (4 * bw) - 2 * n_kv * e / (bw * n_h)
+  let gamma = -2 * n_kv * P * e / (bw * n_h)
+  let discriminant = beta * beta - 4 * alpha * gamma
+  (-beta + calc.sqrt(discriminant)) / (2 * alpha)
+}
+
+Maximum $T$ where Pass-Q is faster than Pass-KV (8 $times$ B200 NVLink):
+
+#align(center)[
+  #cetz.canvas({
+    import cetz.draw: *
+
+    // Generate data points for P from 1 to 1M (log scale sampling)
+    let p_values = nt.logspace(2, 6, 100)
+
+    let llama_data = p_values.map(p => {
+      (p, t_max(p, 8, llama_nkv, llama_nh, blackwell_ifb_bw, blackwell_c_fp8, 1))
+    })
+
+    let gptoss_data = p_values.map(p => {
+      (p, t_max(p, 8, gptoss_nkv, gptoss_nh, blackwell_ifb_bw, blackwell_c_fp8, 1))
+    })
+
+    plot.plot(
+      size: (12, 7),
+      y-label: [$T_max$ (new tokens)],
+      y-mode: "log",
+      x-mode: "log",
+      x-label: [$P$ (prefix tokens)],
+      x-tick-step: none,
+      x-ticks: ((100, "100"), (1000, "1K"), (10000, "10K"), (100000, "100K"), (1000000, "1M")),
+      x-min: 100,
+      x-max: 1000000,
+      y-min: 100,
+      y-tick-step: none,
+      y-ticks: ((100, "100"), (300, "300"), (1000, "1K"), (5000, "5K"), (20000, "20K"), (100000, "100K")),
+      legend: "east",
+      {
+        plot.add(
+          llama_data,
+          style: (stroke: (paint: colors.blue, thickness: 2pt)),
+          label: [Llama-405B ($N_H$/$N_(K V)$ = 16)],
+        )
+        plot.add(
+          gptoss_data,
+          style: (stroke: (paint: colors.red, thickness: 2pt)),
+          label: [GPT-OSS ($N_H$/$N_(K V)$ = 8)],
+        )
+      }
+    )
+  })
+]
+
+Below $T_max$, use All-to-All (Pass-Q). Above $T_max$, use Pass-KV.
+
+
+== What about NVL72?
+Our all-to-all cost is $T_"all2all" = (T D e) / (N 4 BW)$ and $BW$ is 900GB/s v.s. 200GB/s.
+
+Resolve with sympy, solve for $T$ and plot...
