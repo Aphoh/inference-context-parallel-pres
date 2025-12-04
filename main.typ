@@ -59,6 +59,12 @@
 #let gptoss_nkv = 8
 #let gptoss_nh = 64
 
+// DeepSeek V3 MLA (Multi-Head Latent Attention)
+// Single compressed KV cache shared across all query heads
+#let dsv3_cv = 512      // compressed KV dimension
+#let dsv3_c = 576       // key dim (512 + 64 RoPE)
+#let dsv3_hq = 128      // query heads
+
 // =============================================================================
 // Plotting Helpers
 // =============================================================================
@@ -360,15 +366,29 @@ $(C e)/BW$ for Blackwell HMB is $approx$#(blackwell_c_fp4 * 0.5 / blackwell_mem_
 
 #let t_min(n, n_kv, n_h, e, c, bw) = n * (n_kv / n_h) * c * e / (2 * bw)
 
-// TODO: add deepseek v3 https://verda.com/blog/multi-head-latent-attention-benefits-in-memory-and-computation
+// MLA T_min: T >= N × C_v × e × C_flops / (2 × H_q × (C + C_v) × BW)
+// Note: MLA has single shared KV cache (no factor of 2), and different FLOPs formula
+// Reordered to avoid numeric overflow: (c_v / (2 * h_q * (c_k + c_v))) is small
+#let t_min_mla(n, c_v, h_q, c_k, e, c, bw) = n * (c_v / (2 * h_q * (c_k + c_v))) * c * e / bw
 
 // Compute T_min for each config
-#let llama_fp4_nvl = t_min(8, llama_nkv, llama_nh, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
-#let llama_fp8_nvl = t_min(8, llama_nkv, llama_nh, 1, blackwell_c_fp8, blackwell_nvlink_bw)
-#let gptoss_fp4_nvl = t_min(8, gptoss_nkv, gptoss_nh, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
-#let llama_fp4_ib = t_min(8, llama_nkv, llama_nh, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
-#let llama_fp8_ib = t_min(8, llama_nkv, llama_nh, 1, blackwell_c_fp8, blackwell_ifb_bw)
-#let gptoss_fp4_ib = t_min(8, gptoss_nkv, gptoss_nh, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
+#let llama_tmin_fp4_nvl_b200 = t_min(8, llama_nkv, llama_nh, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
+#let llama_tmin_fp8_nvl_b200 = t_min(8, llama_nkv, llama_nh, 1, blackwell_c_fp8, blackwell_nvlink_bw)
+#let gptoss_tmin_fp4_nvl_b200 = t_min(8, gptoss_nkv, gptoss_nh, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
+#let llama_tmin_fp4_ib_b200 = t_min(8, llama_nkv, llama_nh, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
+#let llama_tmin_fp8_ib_b200 = t_min(8, llama_nkv, llama_nh, 1, blackwell_c_fp8, blackwell_ifb_bw)
+#let gptoss_tmin_fp4_ib_b200 = t_min(8, gptoss_nkv, gptoss_nh, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
+#let llama_tmin_fp8_ib_h100 = t_min(4, llama_nkv, llama_nh, 1, h100_fp8_flops, h100_ifb_bw)
+#let gptoss_tmin_fp4_ib_h100 = t_min(4, gptoss_nkv, gptoss_nh, 0.5, h100_fp8_flops, h100_ifb_bw)
+
+// DeepSeek V3 MLA T_min values
+#let dsv3_tmin_fp4_nvl_b200 = t_min_mla(8, dsv3_cv, dsv3_hq, dsv3_c, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
+#let dsv3_tmin_fp8_nvl_b200 = t_min_mla(8, dsv3_cv, dsv3_hq, dsv3_c, 1, blackwell_c_fp8, blackwell_nvlink_bw)
+#let dsv3_tmin_fp4_ib_b200 = t_min_mla(8, dsv3_cv, dsv3_hq, dsv3_c, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
+#let dsv3_tmin_fp8_ib_b200 = t_min_mla(8, dsv3_cv, dsv3_hq, dsv3_c, 1, blackwell_c_fp8, blackwell_ifb_bw)
+
+// Horizontal line x-range for T_min plots
+#let hline_x = (100, 1000000)
 
 Minimum $T$ for communication overlap (8 $times$ B200) #footnote[Infiniband unidirectional @ 200GB/s, 4.5e12 FP8 FLOPS, 9e12 FP4 FLOPS]:
 
@@ -378,17 +398,17 @@ Minimum $T$ for communication overlap (8 $times$ B200) #footnote[Infiniband unid
     import cetz.draw: *
 
     let data = (
-      ([GPT-OSS   FP4 NVL], gptoss_fp4_nvl),
-      ([Llama405B FP4 NVL], llama_fp4_nvl),
-      ([Llama405B FP8 NVL], llama_fp8_nvl),
-      ([GPT-OSS   FP4 IFB], gptoss_fp4_ib),
-      ([Llama405B FP4 IFB], llama_fp4_ib),
-      ([Llama405B FP8 IFB], llama_fp8_ib),
+      ([GPT-OSS   FP4 NVL], gptoss_tmin_fp4_nvl_b200),
+      ([Llama405B FP4 NVL], llama_tmin_fp4_nvl_b200),
+      ([Llama405B FP8 NVL], llama_tmin_fp8_nvl_b200),
+      ([GPT-OSS   FP4 IFB], gptoss_tmin_fp4_ib_b200),
+      ([Llama405B FP4 IFB], llama_tmin_fp4_ib_b200),
+      ([Llama405B FP8 IFB], llama_tmin_fp8_ib_b200),
     )
 
     set-style(barchart: (bar-width: 0.6))
     chart.barchart(
-      size: (8, 5),
+      size: (8, 6),
       label-key: 0,
       value-key: 1,
       data,
@@ -396,7 +416,8 @@ Minimum $T$ for communication overlap (8 $times$ B200) #footnote[Infiniband unid
       x-tick-step: 4000,
       x-format: x => text(size: 12pt)[#(plot.formats.sci(x))],
       bar-style: idx => {
-        // NVLink (first 3): blues/greens, IB (last 3): reds/oranges
+        // NVLink (first 4): greens for MLA, others blues
+        // IB (last 4): green for MLA, others oranges/purples
         let bar-colors = (
           colors.red, // GPT-OSS FP4 NVLink
           colors.blue, // Llama FP4 NVLink
@@ -923,10 +944,15 @@ All-to-all cost is $(T D e) / (bold(N) dot 4 dot BW)$ and $BW$ is 900GB/s v.s. 2
   (p, t_max_nvl72(p, 72, gptoss_nkv, gptoss_nh, blackwell_nvlink_bw, blackwell_c_fp8, 1))
 })
 
+#let llama_tmin_nvl_line = hline_x.map(x => (x, llama_tmin_fp8_nvl_b200))
+#let gptoss_tmin_nvl_line = hline_x.map(x => (x, gptoss_tmin_fp4_nvl_b200))
+
 #align(center)[
   #tmax-plot((
     (llama_nvl72, colors.blue, [Llama-405B (NVL72)]),
     (gptoss_nvl72, colors.red, [GPT-OSS (NVL72)]),
+    (llama_tmin_nvl_line, colors.blue-light, [Llama $T_min$ (NVL)]),
+    (gptoss_tmin_nvl_line, colors.orange, [GPT-OSS $T_min$ (NVL)]),
   ))
 ]
 
@@ -955,17 +981,27 @@ Does the math say the same?
   (p, t_max(p, 4, gptoss_nkv, gptoss_nh, h100_ifb_bw, h100_fp8_flops, 1))
 })
 
+#let hline_x = (100, 1000000)
+#let llama_tmin_ib_line = hline_x.map(x => (x, llama_tmin_fp8_ib_h100))
+#let gptoss_tmin_ib_line = hline_x.map(x => (x, gptoss_tmin_fp4_ib_h100))
 #align(center)[
   #tmax-plot((
     (gptoss_h100, colors.orange, [GPT-OSS (H100 IFB)]),
     (llama_h100, colors.blue, [Llama-405B (H100 IFB)]),
+    (llama_tmin_ib_line, colors.blue-light, [Llama-405B $T_min$ (IFB)]),
+    (gptoss_tmin_ib_line, colors.red, [GPT-OSS $T_min$ (IFB)]),
   ))
 ]
-
+#only(1)[
 For H100 IFB at P=128K, $T_"max" approx 5K approx 4\%$ miss rate! Empirically $approx 5\%$!
+]
+#only(2)[
+  $T_"min"$ is 1250 for both models... Well above the 4k where Meta sees a difference
+]
 
 == Putting it all together
 All $N = 8$
+
 #align(center)[
   #tmax-plot((
     (gptoss_b200_ifb, colors.red, [GPT-OSS (B200 IFB)]),
@@ -978,3 +1014,42 @@ All $N = 8$
 ]
 
 NVL72 pass-Q may be optimal, but $T$ which isn't hideable is small.
+
+== Extra: DSv3 MLA
+
+// MLA coefficients from solve_ineq.py:
+// α = 2*H_q*(C_rope + C_v)/(C*N)
+// β = 2*H_q*P*(C_rope + C_v)/(C*N) - C_v*e/BW + D*e/(4*BW)
+// γ = -C_v*P*e/BW
+#let dsv3_d = 7168  // model dimension for Q communication
+
+#let t_max_mla(P, N, c_v, h_q, c_k, d, bw, c, e) = {
+  let alpha = 2 * h_q * (c_k + c_v) / (c * N)
+  let beta = 2 * h_q * P * (c_k + c_v) / (c * N) - c_v * e / bw + d * e / (4 * bw)
+  let gamma = -c_v * P * e / bw
+  let discriminant = beta * beta - 4 * alpha * gamma
+  (-beta + calc.sqrt(discriminant)) / (2 * alpha)
+}
+
+#let dsv3_mla_ifb = p_values.map(p => {
+  (p, t_max_mla(p, 8, dsv3_cv, dsv3_hq, dsv3_c, dsv3_d, blackwell_ifb_bw, blackwell_c_fp8, 1))
+})
+
+// Horizontal lines for T_min (constant y across x range)
+#let hline_x = (100, 1000000)
+#let dsv3_tmin_line = hline_x.map(x => (x, dsv3_tmin_fp4_ib_b200))
+#let llama_tmin_line = hline_x.map(x => (x, llama_tmin_fp4_ib_b200))
+
+#align(center)[
+  #tmax-plot(
+    (
+      (dsv3_mla_ifb, colors.green, [DSv3 MLA $T_max$]),
+      (dsv3_tmin_line, colors.green-light, [DSv3 MLA $T_min$]),
+      (llama_b200_ifb, colors.blue, [Llama-405B $T_max$]),
+      (llama_tmin_line, colors.blue-light, [Llama-405B $T_min$]),
+    ),
+    y-min: 50,
+  )
+]
+
+MLA: smaller KV cache → lower $T_min$, higher $T_max$ → Pass-Q is never necessary.
