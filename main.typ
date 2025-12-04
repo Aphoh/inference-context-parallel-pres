@@ -5,6 +5,8 @@
 #import "@preview/numty:0.0.5" as nt
 #import themes.university: *
 
+#config-common(handout: true)
+
 #show: university-theme.with(
   aspect-ratio: "16-9",
   config-common(handout: false),
@@ -94,13 +96,13 @@
   (1000000, "1M"),
 )
 
-// Create a log-log plot for T_max vs P with automatic axes
+// Create a log-log plot for T_q^max vs P with automatic axes
 // series: array of (data, color, label) tuples
 // data is array of (x, y) points
 #let tmax-plot(
   series,
   x-label: [$P$ (prefix tokens)],
-  y-label: [$T_max$ (new tokens)],
+  y-label: [$T_"q"^"max"$ (new tokens)],
   size: (12, 7),
   x-min: 100,
   x-max: 1000000,
@@ -182,9 +184,13 @@ Define $"AttnBlock"(bvec(q), K, V, bvec(o)_(i-1), m_(i-1), Z_(i-1)) -> (bvec(o)'
 == Ring Attention
 Compute attention on pieces of the sequence!
 
+#pause
+
 $N$ ranks, give each rank 1/N of the sequence
 
 ${Q_1, ..., Q_N}, {K_1, ..., K_N}, {V_1, ..., V_N}$
+
+#pause
 
 On rank $i$, keep $Q_i$ and compute $forall i in {1..N}$
 $
@@ -192,6 +198,7 @@ $
 $
 
 $bvec(o)$ will have the correct output for $Q_i$
+#pause
 
 How to get $bold(K_i)$ and $bold(V_i)$?
 
@@ -203,16 +210,16 @@ How to get $bold(K_i)$ and $bold(V_i)$?
   #align(center)[
     #text(size: 18pt)[
       #only(1)[Step 1: Each rank computes local attention]
-      #only(2)[Step 2: Send KV to next rank]
-      #only(3)[Step 3: Send KV to next rank]
-      #only(4)[Step 4: Send KV to next rank]
+      #only(2)[Step 2: Send KV to next rank, compute & store]
+      #only(3)[Step 3: Send KV to next rank, compute & store]
+      #only(4)[Step 4: Send KV to next rank, compute & store]
       #only(5)[Complete! Each Q has seen all KVs]
     ]
   ]
 
   #v(0.5em)
 
-  #align(center)[
+  #align(center + horizon)[
     #cetz.canvas({
       import cetz.draw: *
 
@@ -225,14 +232,17 @@ How to get $bold(K_i)$ and $bold(V_i)$?
       // Colors (using global palette)
       let q-color = colors.blue
       let kv-color = colors.red
+      let state-color = colors.green
       let node-fill = colors.gray-light
       let arrow-color = colors.gray
 
       // Layout parameters
-      let radius = 3.5
-      let box-size = 0.9
-      let kv-box-w = 0.9
-      let kv-box-h = 0.35
+      let radius = 3.0
+      let box-size = 0.75
+      let kv-box-w = 0.7
+      let kv-box-h = 0.3
+      let state-box-w = 0.75
+      let state-box-h = 0.2
 
       // 4 positions: top, right, bottom, left
       let positions = (
@@ -244,10 +254,18 @@ How to get $bold(K_i)$ and $bold(V_i)$?
 
       // KV offsets for each rank (outside the box)
       let kv-offsets = (
-        (0, -box-size - 0.5), // Rank 0: below box
-        (-box-size - 0.7, 0), // Rank 1: left of box
-        (0, box-size + 0.5), // Rank 2: above box
-        (box-size + 0.7, 0), // Rank 3: right of box
+        (0, -box-size - 0.4), // Rank 0: below box
+        (-box-size - 0.55, 0), // Rank 1: left of box
+        (0, box-size + 0.4), // Rank 2: above box
+        (box-size + 0.55, 0), // Rank 3: right of box
+      )
+
+      // State offsets (on the other side, more spaced out)
+      let state-offsets = (
+        (0, box-size + 1.3), // Rank 0: above box
+        (box-size + 1.5, 0), // Rank 1: right of box
+        (0, -box-size - 1.3), // Rank 2: below box
+        (-box-size - 1.5, 0), // Rank 3: left of box
       )
 
       // Draw straight arrows between nodes
@@ -274,7 +292,7 @@ How to get $bold(K_i)$ and $bold(V_i)$?
         )
       }
 
-      // Draw nodes and labels
+      // Draw nodes with Q (fixed) and labels inside
       for i in range(4) {
         let pos = positions.at(i)
 
@@ -286,17 +304,16 @@ How to get $bold(K_i)$ and $bold(V_i)$?
           stroke: 1.5pt,
         )
 
-        // Rank label - on top except rank 2 on bottom
-        let label-y = if i == 2 { pos.at(1) - box-size - 0.4 } else { pos.at(1) + box-size + 0.4 }
+        // Rank label inside the box at the top
         content(
-          (pos.at(0), label-y),
-          text(size: 12pt, weight: "bold")[Rank #i],
+          (pos.at(0), pos.at(1) + box-size - 0.22),
+          text(size: 10pt, weight: "bold")[Rank #i],
         )
 
-        // Q in the middle (code font, no subscript)
+        // Q stays fixed in the middle-bottom
         content(
-          pos,
-          text(fill: q-color, weight: "bold", size: 14pt, font: "Menlo")[Q#i],
+          (pos.at(0), pos.at(1) - 0.15),
+          text(fill: q-color, weight: "bold", size: 12pt, font: "Menlo")[Q#i],
         )
       }
 
@@ -318,14 +335,89 @@ How to get $bold(K_i)$ and $bold(V_i)$?
               (kv-x + kv-box-w, kv-y + kv-box-h),
               fill: rgb("#fef2f2"),
               stroke: (paint: kv-color, thickness: 1pt),
-              radius: 0.1,
+              radius: 0.08,
             )
             content(
               (kv-x, kv-y),
-              text(fill: kv-color, weight: "bold", size: 14pt, font: "Menlo")[K#kv-idx V#kv-idx],
+              text(fill: kv-color, weight: "bold", size: 12pt, font: "Menlo")[K#kv-idx V#kv-idx],
             )
           })
         }
+      }
+
+      // Show computed attention results accumulating at each rank
+      // For rank r, KV rotates: at step s, rank r has KV_(r + s - 1 mod 4)
+      // So the computed attention at rank r, step s is: A(Q_r, K_(r+s-1 mod 4), V_(r+s-1 mod 4))
+
+      let get-kv-at-rank(rank, step) = calc.rem(rank + step - 1 + 4, 4)
+      let state-text-color = rgb("#166534") // darker green for readability
+      let final-color = colors.purple // color for final result
+
+      for rank in range(4) {
+        let pos = positions.at(rank)
+        let offset = state-offsets.at(rank)
+        let state-x = pos.at(0) + offset.at(0)
+        let state-y = pos.at(1) + offset.at(1)
+
+        // Steps 1-4: Show accumulating partials (same Q, different KV's)
+        for step in range(1, 5) {
+          only(step, {
+            let computed = ()
+            for s in range(1, step + 1) {
+              let kv-id = get-kv-at-rank(rank, s)
+              computed.push("A(Q" + str(rank) + ",K" + str(kv-id) + "V" + str(kv-id) + ")")
+            }
+
+            let num-items = computed.len()
+            let item-height = 0.35
+            let box-height = num-items * item-height + 0.15
+
+            rect(
+              (state-x - state-box-w - 0.4, state-y - box-height / 2),
+              (state-x + state-box-w + 0.4, state-y + box-height / 2),
+              fill: rgb("#f0fdf4"),
+              stroke: (paint: state-color, thickness: 1pt),
+              radius: 0.08,
+            )
+
+            for (idx, item) in computed.enumerate() {
+              let y-pos = state-y + box-height / 2 - 0.22 - idx * item-height
+              content(
+                (state-x, y-pos),
+                text(fill: state-text-color, size: 10pt, font: "Menlo")[#item],
+              )
+            }
+          })
+        }
+
+        // Step 5: Final state - show all computed attentions with final color
+        only(5, {
+          let computed = ()
+          for s in range(1, 5) {
+            let kv-id = get-kv-at-rank(rank, s)
+            computed.push("A(Q" + str(rank) + ",K" + str(kv-id) + "V" + str(kv-id) + ")")
+          }
+
+          let num-items = computed.len()
+          let item-height = 0.35
+          let box-height = num-items * item-height + 0.15
+
+          rect(
+            (state-x - state-box-w - 0.4, state-y - box-height / 2),
+            (state-x + state-box-w + 0.4, state-y + box-height / 2),
+            fill: rgb("#faf5ff"),
+            stroke: (paint: final-color, thickness: 1pt),
+            radius: 0.08,
+          )
+
+          for (idx, item) in computed.enumerate() {
+            let y-pos = state-y + box-height / 2 - 0.22 - idx * item-height
+            content(
+              (state-x, y-pos),
+              text(fill: rgb("#6b21a8"), size: 10pt, font: "Menlo")[#item],
+            )
+          }
+        })
       }
     })
   ]
@@ -334,6 +426,7 @@ How to get $bold(K_i)$ and $bold(V_i)$?
 == Ring Attention: Complexity (Pass-KV)
 
 For $N$ ranks, sequence length $T$, model dim $D_q$, $N_H$ query heads, $N_(K V)$ KV heads:, $e$ bytes/element
+#pause
 
 #table(
   columns: 2,
@@ -341,26 +434,25 @@ For $N$ ranks, sequence length $T$, model dim $D_q$, $N_H$ query heads, $N_(K V)
   [*FLOPS*], [ $2 T^2 D$],
   [*Q bytes*], [$T D e$],
   [*KV bytes*], [$2 T D (N_(K V)) / (N_H) e$],
-)
+) #pause
 
-*Computation*: $(2 T^2 D) / N$ FLOPs
+*Computation*: $(2 T^2 D) / N$ FLOPs #pause
 
-*Communication* (unidirectional): $2 T D (N_(K V)) / (N_H) e$ bytes
+*Communication* (unidirectional): $2 T D (N_(K V)) / (N_H) e$ bytes 
 #let BW = $"BW"$
 
 == Ring Attention: Overlap Condition
 
 $
-  (2 T^2 D / N) / C >= (2 T D (N_(K V) / N_H) e) / BW \
-                                            T / (C N) & >= (N_(K V) e) / (N_H BW) \
-                                                    T & >= N (N_(K V) / N_H) ((C e) / (BW))
+  #only(1)[$T_"compute" &>= T_"comm"$] #pause \
+  (2 T^2 D) / (C N) & >= (2 T D (N_(K V) / N_H) e) / BW #pause \ 
+  T / (C N) & >= (N_(K V) e) / (N_H BW) #pause \ 
+  T & >= N N_(K V) / N_H (C e) / (BW) #pause \
 $
 
-$(C e)/BW$ for Blackwell IFB is $approx$#(blackwell_c_fp4 * 0.5 / blackwell_ifb_bw)
+Call RHS $T_"kv"^"min"$: minimum $T$ where we're compute-bound
 
-$(C e)/BW$ for Blackwell NVLink is $approx$#(blackwell_c_fp4 * 0.5 / blackwell_nvlink_bw)
-
-$(C e)/BW$ for Blackwell HMB is $approx$#(blackwell_c_fp4 * 0.5 / blackwell_mem_bw)
+$(C e)/BW$ for Blackwell IFB is $approx$#(blackwell_c_fp4 * 0.5 / blackwell_ifb_bw), NVLINK is $approx$#(blackwell_c_fp4 * 0.5 / blackwell_nvlink_bw)
 
 == When Can We Hide Communication?
 
@@ -430,7 +522,7 @@ Minimum $T$ for communication overlap (8 $times$ B200) #footnote[Infiniband unid
       label-key: 0,
       value-key: 1,
       data,
-      x-label: [$T_min$ (tokens)],
+      x-label: [$T_"kv"^"min"$ (tokens)],
       x-tick-step: none,
       x-ticks: ((4000, "4K"), (10000, "10K"), (100000, "100K"), (1000000, "1M")),
       bar-style: idx => {
@@ -451,7 +543,6 @@ Minimum $T$ for communication overlap (8 $times$ B200) #footnote[Infiniband unid
 ]
 
 Independent of datatype since $C e$ is _theoretically_ constant.
-NVL72
 
 == Ring Attention with Prefixes
 With $P$ cached tokens,
@@ -463,19 +554,22 @@ With $P$ cached tokens,
   [*Q bytes*], [$T D e$],
   [*KV bytes*], [$2 (P + T) D (N_(K V)) / (N_H) e$],
 )
+#pause
 
 *Computation*: $display((2 (P + T)T D) / N)$ FLOPs
+
+#pause
 
 *Communication* (unidirectional): $display(2 (P + T) D (N_(K V)) / (N_H) e)$ bytes
 
 == Ring Attention with Prefixes: Overlap Condition
 $
-  (2 T(P + T) D) /(C N) & >= (2 (P + T) D (N_(K V)) / (N_H) e) / BW \
-              T / (C N) & >= N_(K V)/N_H e/BW \
-                      T & >= N N_(K V) / N_H (C e) / BW
+  (2 T(P + T) D) /(C N) & >= (2 (P + T) D (N_(K V)) / (N_H) e) / BW #pause \
+              T / (C N) & >= N_(K V)/N_H e/BW #pause \
+                      T & >= N N_(K V) / N_H (C e) / BW #pause
 $
 
-#emoji.excl it's the same!
+Same $T_"kv"^"min"$!
 
 But the new $T$ is _only new tokens_!
 
@@ -483,11 +577,11 @@ Must be 4k+ to hide communication!
 
 == This Paper: Context Parallelism over Queries
 
-From Meta using 128xH100 with IFB and TCP.
+Observation: For small $T$, queries are much smaller than KV!
 
-For small $T$, queries are much smaller than KV!
+#pause
 
-What if we ring-pass queries?
+What if we ring-pass _queries_ instead of KV?
 
 == Ring Attention: Pass-Q
 
@@ -801,16 +895,24 @@ What if we ring-pass queries?
 
 *Computation*: $display((2 T(P + T) D) / N)$ FLOPs
 
+#pause
+
 *Communication* (unidirectional): $bold(T D e)$ bytes
+
+Only depends on $T$ instead of $P + T$!
 #pagebreak()
 
 Overlap condition:
 $
-  (2 T(P + T) D) /(C N) & >= (T D e) / BW \
-                  P + T & >= N / 2 (C e) / BW
+  T_"compute" &>= T_"comm" #pause \
+  (2 T(P + T) D) /(C N) & >= (T D e) / BW #pause \
+                  P + T & >= N / 2 (C e) / BW #pause \
 $
 
-Doesn't depend on $N_H, N_(K V)$
+Doesn't depend on $N_H, N_(K V), T$, just $P + T$
+
+Note: $C dot e$ is the _theoretically_ the same for FP4 and FP8, so model doesn't matter!
+
 
 #pagebreak()
 
@@ -820,18 +922,20 @@ Doesn't depend on $N_H, N_(K V)$
 
 #let passq_fp8_nvl = passq_min(8, blackwell_c_fp8, 1, blackwell_nvlink_bw)
 #let passq_fp8_ib = passq_min(8, blackwell_c_fp8, 1, blackwell_ifb_bw)
+#let passq_fp8_h100_ib = passq_min(8, h100_fp8_flops, 1, h100_ifb_bw)
 
 
 Minimum $(P + T)$ for communication overlap (8 $times$ B200):
 
-#align(center)[
+#let passq_min_plot = align(center)[
   #set text(font: "Menlo", size: 14pt)
   #cetz.canvas({
     import cetz.draw: *
 
     let data = (
-      ([NVLink], passq_fp8_nvl),
-      ([IFB   ], passq_fp8_ib),
+      ([NVLink B100], passq_fp8_nvl),
+      ([IFB   B100], passq_fp8_ib),
+      ([IFB H100], passq_fp8_h100_ib),
     )
 
     set-style(barchart: (bar-width: 0.6))
@@ -856,18 +960,22 @@ Minimum $(P + T)$ for communication overlap (8 $times$ B200):
   })
 ]
 
-Note: $C dot e$ is the same for FP4 and FP8, so model doesn't matter!
+#passq_min_plot
 
 Requires balanced KVs across ranks (round-robin during decode)
 
-== This Paper Kinda Stinks
+*When is the All-to-All faster than Pass-KV's communication overhead?*
 
-They have a bunch of math mistakes. Ex:
-#image("og_paper_bad_math.png", width: 100%)
+== The rest of the paper stinks
 
 #pause
 
-This is _so wrong it hurts._
+They have a bunch of math mistakes. Ex:
+#image("og_paper_bad_math.png", width: 75%)
+
+#pause
+
+This is _really wrong_. All-to-all in a ring is $"Data" / (4 BW)$!
 
 #pause
 
@@ -888,22 +996,30 @@ $
   T_"all2all" = (T D e) / (4 BW)
 $
 
+#pause
+
 All-to-All time in NVL72 is just $(T D e) / (N BW)$
+
+#pause
 
 Need to check if $T_"all2all" < (T_"kv,comm" - T_"kv,compute")$
 
 == All-to-All cost
 
 $
-  T_"kv,comm" - T_"kv,compute" & = 2 (P + T) D (N_(K V)) / (N_H) e / BW - (2 (P + T) T D) / (N C) \
-                               & = 2(P+T) D ( N_(K V) / N_H e / BW- T / (N C)) \
+  T_"kv,comm" - T_"kv,compute" & = 2 (P + T) D (N_(K V)) / (N_H) e / BW - (2 (P + T) T D) / (N C) #pause \
+                               & = 2(P+T) D ( N_(K V) / N_H e / BW- T / (N C)) #pause \
               (T D e) / (4 BW) & < T_"kv,comm" - T_"kv,compute" \
 $
 
+#pause
 Ends up being quadratic... hand it to `sympy`, solve for $T$ and plot
 
+#pause
+Gets $T_"q"^"max"$: the maximum $T$ where Pass-Q All-to-All is faster than Pass-KV overhead
 
-== $T_max$ vs Prefix Length
+
+== $T_"q"^"max"$ vs Prefix Length
 
 #let t_max(P, N, n_kv, n_h, bw, c, e) = {
   // From: t_all2all < t_kv_comm - t_kv_compute
@@ -915,7 +1031,7 @@ Ends up being quadratic... hand it to `sympy`, solve for $T$ and plot
   (-beta + calc.sqrt(discriminant)) / (2 * alpha)
 }
 
-Maximum $T$ where Pass-Q is faster than Pass-KV (8 $times$ B200 IFB):
+Max $T$ where Pass-Q is faster than Pass-KV (8 $times$ B200 IFB), i.e. $T_"q"^"max"$:
 
 
 // Generate data points for P from 1 to 1M (log scale sampling)
@@ -934,14 +1050,14 @@ Maximum $T$ where Pass-Q is faster than Pass-KV (8 $times$ B200 IFB):
 
 #align(center)[
   #tmax-plot((
-    (llama_b200_ifb, colors.blue, [Llama-405B IFB $T_max$]),
-    (gptoss_b200_ifb, colors.red, [GPT-OSS IFB $T_max$]),
-    (llama_tmin_b200_ifb_line, colors.blue-light, [Llama 405B $T_min$]),
-    (gptoss_tmin_b200_ifb_line, colors.orange, [GPT-OSS $T_min$]),
+    (llama_b200_ifb, colors.blue, [Llama-405B IFB $T_"q"^"max"$]),
+    (gptoss_b200_ifb, colors.red, [GPT-OSS IFB $T_"q"^"max"$]),
+    (llama_tmin_b200_ifb_line, colors.blue-light, [Llama 405B $T_"kv"^"min"$]),
+    (gptoss_tmin_b200_ifb_line, colors.orange, [GPT-OSS $T_"kv"^"min"$]),
   ))
 ]
 
-Below $T_max$, use All-to-All (Pass-Q). Above $T_max$, use Pass-KV.
+Below $T_"q"^"max"$, use All-to-All (Pass-Q). Above $T_"q"^"max"$, use Pass-KV.
 
 
 == What about NVL72?
@@ -972,22 +1088,24 @@ All-to-all cost is $(T D e) / (bold(N) dot 4 dot BW)$ and $BW$ is 900GB/s v.s. 2
 
 #align(center)[
   #tmax-plot((
-    (llama_nvl72, colors.blue, [Llama-405B NVL $T_max$]),
-    (gptoss_nvl72, colors.red, [GPT-OSS NVL $T_max$]),
-    (llama_tmin_nvl_line, colors.blue-light, [Llama NVL $T_min$]),
-    (gptoss_tmin_nvl_line, colors.orange, [GPT-OSS NVL $T_min$]),
+    (llama_nvl72, colors.blue, [Llama-405B NVL $T_"q"^"max"$]),
+    (gptoss_nvl72, colors.red, [GPT-OSS NVL $T_"q"^"max"$]),
+    (llama_tmin_nvl_line, colors.blue-light, [Llama NVL $T_"kv"^"min"$]),
+    (gptoss_tmin_nvl_line, colors.orange, [GPT-OSS NVL $T_"kv"^"min"$]),
   ))
 ]
 
-With NVL72's lower all-to-all cost, Pass-Q is optimal up to larger $T$.
+Pass-Q can work up to larger $T_"q"^"max"$, almost indpendent of $P$.
 
-But we only fail to hide communication for fairly small $T$.
+But $T_"kv"^"min"$ is way smaller! Only fail to hide comm for $T_"kv"^"min" < "1K,3K"$.
 
 == Meta's Hopper Performance
 
 #image("ttft_comparison.pdf", width: 100%)
 
-pass-Q is slighly better than pass-KV for very low miss rates
+Report pass-Q is slighly better than pass-KV for very low miss rates
+
+#pause
 
 Does the math say the same?
 
@@ -1009,18 +1127,20 @@ Does the math say the same?
 #let gptoss_tmin_ib_line = hline_x.map(x => (x, gptoss_tmin_fp4_ib_h100))
 #align(center)[
   #tmax-plot((
-    (gptoss_h100, colors.orange, [GPT-OSS IFB $T_max$]),
-    (gptoss_tmin_ib_line, colors.red, [GPT-OSS IFB $T_min$]),
-    (llama_h100, colors.blue, [Llama-405B IFB $T_max$]),
-    (llama_tmin_ib_line, colors.blue-light, [Llama-405B IFB $T_min$]),
+    (gptoss_h100, colors.orange, [GPT-OSS IFB $T_"q"^"max"$]),
+    (gptoss_tmin_ib_line, colors.red, [GPT-OSS IFB $T_"kv"^"min"$]),
+    (llama_h100, colors.blue, [Llama-405B IFB $T_"q"^"max"$]),
+    (llama_tmin_ib_line, colors.blue-light, [Llama-405B IFB $T_"kv"^"min"$]),
   ))
 ]
 #only(1)[
-  For H100 IFB at P=128K, $T_"max" approx 5K approx 4\%$ miss rate! Empirically $approx 5\%$!
+  At P=128K, $T_"q"^"max" approx 5K approx 4\%$ miss rate! Matches empirical of $approx 5\%$!
 ]
 #only(2)[
-  $T_"min"$ is 1250 for both models... Well above the 4k where Meta sees a difference
+  But $T_"kv"^"min"$ is 1250 for both models... Well above the 4k where Meta sees a difference
 ]
+
+== Thanks
 
 == Extra: DSv3 MLA
 
@@ -1050,13 +1170,13 @@ Does the math say the same?
 #align(center)[
   #tmax-plot(
     (
-      (dsv3_mla_ifb, colors.green, [DSv3 MLA $T_max$]),
-      (dsv3_tmin_line, colors.green-light, [DSv3 MLA $T_min$]),
-      (llama_b200_ifb, colors.blue, [Llama-405B $T_max$]),
-      (llama_tmin_line, colors.blue-light, [Llama-405B $T_min$]),
+      (dsv3_mla_ifb, colors.green, [DSv3 MLA $T_"q"^"max"$]),
+      (dsv3_tmin_line, colors.green-light, [DSv3 MLA $T_"kv"^"min"$]),
+      (llama_b200_ifb, colors.blue, [Llama-405B $T_"q"^"max"$]),
+      (llama_tmin_line, colors.blue-light, [Llama-405B $T_"kv"^"min"$]),
     ),
     y-min: 50,
   )
 ]
 
-MLA: smaller KV cache → lower $T_min$, higher $T_max$ → Pass-Q is never necessary.
+MLA: smaller KV cache → lower $T_"kv"^"min"$, higher $T_"q"^"max"$ → Pass-Q is never necessary.
