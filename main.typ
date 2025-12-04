@@ -911,10 +911,15 @@ Maximum $T$ where Pass-Q is faster than Pass-KV (8 $times$ B200 IFB):
   (p, t_max(p, 8, gptoss_nkv, gptoss_nh, blackwell_ifb_bw, blackwell_c_fp8, 1))
 })
 
+#let llama_tmin_b200_ifb_line = hline_x.map(x => (x, llama_tmin_fp4_ib_b200))
+#let gptoss_tmin_b200_ifb_line = hline_x.map(x => (x, gptoss_tmin_fp4_ib_b200))
+
 #align(center)[
   #tmax-plot((
-    (llama_b200_ifb, colors.blue, [Llama-405B ($N_H$/$N_(K V)$ = 16)]),
-    (gptoss_b200_ifb, colors.red, [GPT-OSS ($N_H$/$N_(K V)$ = 8)]),
+    (llama_b200_ifb, colors.blue, [Llama-405B IFB $T_max$]),
+    (gptoss_b200_ifb, colors.red, [GPT-OSS IFB $T_max$]),
+    (llama_tmin_b200_ifb_line, colors.blue-light, [Llama 405B $T_min$]),
+    (gptoss_tmin_b200_ifb_line, colors.orange, [GPT-OSS $T_min$]),
   ))
 ]
 
@@ -949,10 +954,10 @@ All-to-all cost is $(T D e) / (bold(N) dot 4 dot BW)$ and $BW$ is 900GB/s v.s. 2
 
 #align(center)[
   #tmax-plot((
-    (llama_nvl72, colors.blue, [Llama-405B (NVL72)]),
-    (gptoss_nvl72, colors.red, [GPT-OSS (NVL72)]),
-    (llama_tmin_nvl_line, colors.blue-light, [Llama $T_min$ (NVL)]),
-    (gptoss_tmin_nvl_line, colors.orange, [GPT-OSS $T_min$ (NVL)]),
+    (llama_nvl72, colors.blue, [Llama-405B NVL $T_max$]),
+    (gptoss_nvl72, colors.red, [GPT-OSS NVL $T_max$]),
+    (llama_tmin_nvl_line, colors.blue-light, [Llama NVL $T_min$]),
+    (gptoss_tmin_nvl_line, colors.orange, [GPT-OSS NVL $T_min$]),
   ))
 ]
 
@@ -971,7 +976,7 @@ Does the math say the same?
 == Validating Meta's Hopper Performance
 4 x H100 with 200GB/s (unidirectional) IFB
 
-#let p_values = nt.logspace(2, 6, 5)
+#let p_values = nt.logspace(2, 6, 100)
 
 #let llama_h100 = p_values.map(p => {
   (p, t_max(p, 4, llama_nkv, llama_nh, h100_ifb_bw, h100_fp8_flops, 1))
@@ -986,10 +991,10 @@ Does the math say the same?
 #let gptoss_tmin_ib_line = hline_x.map(x => (x, gptoss_tmin_fp4_ib_h100))
 #align(center)[
   #tmax-plot((
-    (gptoss_h100, colors.orange, [GPT-OSS (H100 IFB)]),
-    (llama_h100, colors.blue, [Llama-405B (H100 IFB)]),
-    (llama_tmin_ib_line, colors.blue-light, [Llama-405B $T_min$ (IFB)]),
-    (gptoss_tmin_ib_line, colors.red, [GPT-OSS $T_min$ (IFB)]),
+    (gptoss_h100, colors.orange, [GPT-OSS IFB $T_max$]),
+    (gptoss_tmin_ib_line, colors.red, [GPT-OSS IFB $T_min$]),
+    (llama_h100, colors.blue, [Llama-405B IFB $T_max$]),
+    (llama_tmin_ib_line, colors.blue-light, [Llama-405B IFB $T_min$]),
   ))
 ]
 #only(1)[
@@ -998,22 +1003,6 @@ For H100 IFB at P=128K, $T_"max" approx 5K approx 4\%$ miss rate! Empirically $a
 #only(2)[
   $T_"min"$ is 1250 for both models... Well above the 4k where Meta sees a difference
 ]
-
-== Putting it all together
-All $N = 8$
-
-#align(center)[
-  #tmax-plot((
-    (gptoss_b200_ifb, colors.red, [GPT-OSS (B200 IFB)]),
-    (gptoss_h100, colors.orange, [GPT-OSS (H100 IFB)]),
-    (llama_b200_ifb, colors.purple, [Llama-405B (B200 IFB)]),
-    (llama_h100, colors.blue, [Llama-405B (H100 IFB)]),
-    (llama_nvl72, colors.blue-light, [Llama-405B (NVL72)]),
-    (gptoss_nvl72, colors.green, [GPT-OSS (NVL72)]),
-  ))
-]
-
-NVL72 pass-Q may be optimal, but $T$ which isn't hideable is small.
 
 == Extra: DSv3 MLA
 
