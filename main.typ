@@ -372,20 +372,38 @@ $(C e)/BW$ for Blackwell HMB is $approx$#(blackwell_c_fp4 * 0.5 / blackwell_mem_
 #let t_min_mla(n, c_v, h_q, c_k, e, c, bw) = n * (c_v / (2 * h_q * (c_k + c_v))) * c * e / bw
 
 // Compute T_min for each config
-#let llama_tmin_fp4_nvl_b200 = t_min(8, llama_nkv, llama_nh, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
-#let llama_tmin_fp8_nvl_b200 = t_min(8, llama_nkv, llama_nh, 1, blackwell_c_fp8, blackwell_nvlink_bw)
-#let gptoss_tmin_fp4_nvl_b200 = t_min(8, gptoss_nkv, gptoss_nh, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
-#let llama_tmin_fp4_ib_b200 = t_min(8, llama_nkv, llama_nh, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
-#let llama_tmin_fp8_ib_b200 = t_min(8, llama_nkv, llama_nh, 1, blackwell_c_fp8, blackwell_ifb_bw)
-#let gptoss_tmin_fp4_ib_b200 = t_min(8, gptoss_nkv, gptoss_nh, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
-#let llama_tmin_fp8_ib_h100 = t_min(4, llama_nkv, llama_nh, 1, h100_fp8_flops, h100_ifb_bw)
-#let gptoss_tmin_fp4_ib_h100 = t_min(4, gptoss_nkv, gptoss_nh, 0.5, h100_fp8_flops, h100_ifb_bw)
+#let num_nodes_b200 = 8
+#let num_nodes_h100 = 4
+#let llama_tmin_fp4_nvl_b200 = t_min(num_nodes_b200, llama_nkv, llama_nh, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
+#let llama_tmin_fp8_nvl_b200 = t_min(num_nodes_b200, llama_nkv, llama_nh, 1, blackwell_c_fp8, blackwell_nvlink_bw)
+#let gptoss_tmin_fp4_nvl_b200 = t_min(num_nodes_b200, gptoss_nkv, gptoss_nh, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
+#let llama_tmin_fp4_ib_b200 = t_min(num_nodes_b200, llama_nkv, llama_nh, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
+#let llama_tmin_fp8_ib_b200 = t_min(num_nodes_b200, llama_nkv, llama_nh, 1, blackwell_c_fp8, blackwell_ifb_bw)
+#let gptoss_tmin_fp4_ib_b200 = t_min(num_nodes_b200, gptoss_nkv, gptoss_nh, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
+#let llama_tmin_fp8_ib_h100 = t_min(num_nodes_h100, llama_nkv, llama_nh, 1, h100_fp8_flops, h100_ifb_bw)
+#let gptoss_tmin_fp4_ib_h100 = t_min(num_nodes_h100, gptoss_nkv, gptoss_nh, 0.5, h100_fp8_flops, h100_ifb_bw)
 
 // DeepSeek V3 MLA T_min values
-#let dsv3_tmin_fp4_nvl_b200 = t_min_mla(8, dsv3_cv, dsv3_hq, dsv3_c, 0.5, blackwell_c_fp4, blackwell_nvlink_bw)
-#let dsv3_tmin_fp8_nvl_b200 = t_min_mla(8, dsv3_cv, dsv3_hq, dsv3_c, 1, blackwell_c_fp8, blackwell_nvlink_bw)
-#let dsv3_tmin_fp4_ib_b200 = t_min_mla(8, dsv3_cv, dsv3_hq, dsv3_c, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
-#let dsv3_tmin_fp8_ib_b200 = t_min_mla(8, dsv3_cv, dsv3_hq, dsv3_c, 1, blackwell_c_fp8, blackwell_ifb_bw)
+#let dsv3_tmin_fp4_nvl_b200 = t_min_mla(
+  num_nodes_b200,
+  dsv3_cv,
+  dsv3_hq,
+  dsv3_c,
+  0.5,
+  blackwell_c_fp4,
+  blackwell_nvlink_bw,
+)
+#let dsv3_tmin_fp8_nvl_b200 = t_min_mla(
+  num_nodes_b200,
+  dsv3_cv,
+  dsv3_hq,
+  dsv3_c,
+  1,
+  blackwell_c_fp8,
+  blackwell_nvlink_bw,
+)
+#let dsv3_tmin_fp4_ib_b200 = t_min_mla(num_nodes_b200, dsv3_cv, dsv3_hq, dsv3_c, 0.5, blackwell_c_fp4, blackwell_ifb_bw)
+#let dsv3_tmin_fp8_ib_b200 = t_min_mla(num_nodes_b200, dsv3_cv, dsv3_hq, dsv3_c, 1, blackwell_c_fp8, blackwell_ifb_bw)
 
 // Horizontal line x-range for T_min plots
 #let hline_x = (100, 1000000)
@@ -413,8 +431,8 @@ Minimum $T$ for communication overlap (8 $times$ B200) #footnote[Infiniband unid
       value-key: 1,
       data,
       x-label: [$T_min$ (tokens)],
-      x-tick-step: 4000,
-      x-format: x => text(size: 12pt)[#(plot.formats.sci(x))],
+      x-tick-step: none,
+      x-ticks: ((4000, "4K"), (10000, "10K"), (100000, "100K"), (1000000, "1M")),
       bar-style: idx => {
         // NVLink (first 4): greens for MLA, others blues
         // IB (last 4): green for MLA, others oranges/purples
@@ -433,7 +451,7 @@ Minimum $T$ for communication overlap (8 $times$ B200) #footnote[Infiniband unid
 ]
 
 Independent of datatype since $C e$ is _theoretically_ constant.
-NVL72 
+NVL72
 
 == Ring Attention with Prefixes
 With $P$ cached tokens,
@@ -901,7 +919,7 @@ Maximum $T$ where Pass-Q is faster than Pass-KV (8 $times$ B200 IFB):
 
 
 // Generate data points for P from 1 to 1M (log scale sampling)
-#let p_values = nt.logspace(2, 6, 100)
+#let p_values = nt.logspace(2, 6, 20)
 
 #let llama_b200_ifb = p_values.map(p => {
   (p, t_max(p, 8, llama_nkv, llama_nh, blackwell_ifb_bw, blackwell_c_fp8, 1))
@@ -938,7 +956,7 @@ All-to-all cost is $(T D e) / (bold(N) dot 4 dot BW)$ and $BW$ is 900GB/s v.s. 2
   let discriminant = beta * beta - 4 * alpha * gamma
   (-beta + calc.sqrt(discriminant)) / (2 * alpha)
 }
-#let p_values = nt.logspace(2, 6, 100)
+#let p_values = nt.logspace(2, 6, 20)
 
 // NVL72 with NVLink bandwidth (900GB/s)
 #let llama_nvl72 = p_values.map(p => {
@@ -976,7 +994,7 @@ Does the math say the same?
 == Validating Meta's Hopper Performance
 4 x H100 with 200GB/s (unidirectional) IFB
 
-#let p_values = nt.logspace(2, 6, 100)
+#let p_values = nt.logspace(2, 6, 20)
 
 #let llama_h100 = p_values.map(p => {
   (p, t_max(p, 4, llama_nkv, llama_nh, h100_ifb_bw, h100_fp8_flops, 1))
@@ -998,7 +1016,7 @@ Does the math say the same?
   ))
 ]
 #only(1)[
-For H100 IFB at P=128K, $T_"max" approx 5K approx 4\%$ miss rate! Empirically $approx 5\%$!
+  For H100 IFB at P=128K, $T_"max" approx 5K approx 4\%$ miss rate! Empirically $approx 5\%$!
 ]
 #only(2)[
   $T_"min"$ is 1250 for both models... Well above the 4k where Meta sees a difference
