@@ -11,7 +11,7 @@
   config-info(
     title: [Context Parallelism for Scalable Million-Token Inference],
     author: [William Arnold],
-    date: datetime.today(),
+    date: "2025-12-04",
     institution: [DLAlgo Inference Reading Group],
   ),
 )
@@ -66,19 +66,23 @@ At $i=S$, $bvec(o)'_S$ is the correct output for query $bvec(q)$.
   "https://github.com/Aphoh/flash-attention-703/blob/main/main.pdf",
 )[#underline[Flash Attention Explained]]]
 
-Define $"FlashAttnBlock"(bvec(q), K, V, bvec(o)_(i-1), m_(i-1), Z_(i-1)) -> (bvec(o)', m, Z)$:
+Define $"AttnBlock"(bvec(q), K, V, bvec(o)_(i-1), m_(i-1), Z_(i-1)) -> (bvec(o)', m, Z)$:
 
 == Ring Attention
 Compute attention on pieces of the sequence!
 
-$N$ ranks, ${Q_1, ..., Q_N}, {K_1, ..., K_N}, {V_1, ..., V_N}$
+$N$ ranks, give each rank 1/N of the sequence
+
+${Q_1, ..., Q_N}, {K_1, ..., K_N}, {V_1, ..., V_N}$
 
 On rank $i$, keep $Q_i$ and compute $forall i in {1..N}$
 $
-  bvec(o)_i, m_i, Z_i <- "FlashAttnBlock"(Q_i, bold(K_i), bold(V_i), bvec(o)_i, m_(i-1), Z_(i-1))^(\[#footnote[$o_i$ is initialized to zero]\])
+  bvec(o)_i, m_i, Z_i <- "AttnBlock"(Q_i, bold(K_i), bold(V_i), bvec(o)_i, m_(i-1), Z_(i-1))^(\[#footnote[$o_i$ is initialized to zero]\])
 $
 
 $bvec(o)$ will have the correct output for $Q_i$
+
+How to get $bold(K_i)$ and $bold(V_i)$?
 
 == Ring Attention: Communication
 
@@ -207,7 +211,7 @@ $bvec(o)$ will have the correct output for $Q_i$
             )
             content(
               (kv-x, kv-y),
-              text(fill: kv-color, weight: "bold", size: 11pt, font: "Menlo")[K#kv-idx V#kv-idx],
+              text(fill: kv-color, weight: "bold", size: 14pt, font: "Menlo")[K#kv-idx V#kv-idx],
             )
           })
         }
@@ -810,6 +814,62 @@ Below $T_max$, use All-to-All (Pass-Q). Above $T_max$, use Pass-KV.
 
 
 == What about NVL72?
-Our all-to-all cost is $T_"all2all" = (T D e) / (N 4 BW)$ and $BW$ is 900GB/s v.s. 200GB/s.
+All-to-all cost is $(T D e) / (bold(N) dot 4 dot BW)$ and $BW$ is 900GB/s v.s. 200GB/s.
 
-Resolve with sympy, solve for $T$ and plot...
+#let t_max_nvl72(P, N, n_kv, n_h, bw, c, e) = {
+  // From: t_all2all < t_kv_comm - t_kv_compute (NVL72 version)
+  // Only difference: β has e/(4·BW·N) instead of e/(4·BW)
+  let alpha = 2 / (c * N)
+  let beta = 2 * P / (c * N) - 2 * n_kv * e / (bw * n_h) + e / (4 * bw * N)
+  let gamma = -2 * n_kv * P * e / (bw * n_h)
+  let discriminant = beta * beta - 4 * alpha * gamma
+  (-beta + calc.sqrt(discriminant)) / (2 * alpha)
+}
+
+#align(center)[
+  #cetz.canvas({
+    import cetz.draw: *
+
+    let p_values = nt.logspace(1, 6, 100)
+
+    // NVL72 with NVLink bandwidth (900GB/s)
+    let llama_nvl72 = p_values.map(p => {
+      (p, t_max_nvl72(p, 72, llama_nkv, llama_nh, blackwell_nvlink_bw, blackwell_c_fp8, 1))
+    })
+
+    let gptoss_nvl72 = p_values.map(p => {
+      (p, t_max_nvl72(p, 72, gptoss_nkv, gptoss_nh, blackwell_nvlink_bw, blackwell_c_fp8, 1))
+    })
+
+    plot.plot(
+      size: (12, 7),
+      y-label: [$T_max$ (new tokens)],
+      y-mode: "log",
+      x-mode: "log",
+      x-label: [$P$ (prefix tokens)],
+      x-tick-step: none,
+      x-ticks: ((100, "100"), (1000, "1K"), (10000, "10K"), (100000, "100K"), (1000000, "1M")),
+      x-min: 100,
+      x-max: 1000000,
+      y-min: 10000,
+      y-max: 100000,
+      y-tick-step: none,
+      y-ticks: ((100, "100"), (300, "300"), (1000, "1K"), (5000, "5K"), (20000, "20K"), (50000, "50K"), (100000, "100K")),
+      legend: "east",
+      {
+        plot.add(
+          llama_nvl72,
+          style: (stroke: (paint: colors.blue, thickness: 2pt)),
+          label: [Llama-405B (NVL72)],
+        )
+        plot.add(
+          gptoss_nvl72,
+          style: (stroke: (paint: colors.red, thickness: 2pt)),
+          label: [GPT-OSS (NVL72)],
+        )
+      }
+    )
+  })
+]
+
+With NVL72's lower all-to-all cost, Pass-Q is optimal up to larger $T$.
