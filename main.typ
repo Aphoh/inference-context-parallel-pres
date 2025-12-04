@@ -35,6 +35,111 @@
   gray-light: rgb("#f3f4f6"),
 )
 
+// =============================================================================
+// Hardware Constants
+// =============================================================================
+#let sci(a, x) = a * calc.pow(10, x)
+
+// Blackwell B200
+#let blackwell_mem_bw = sci(8, 12)       // 8 TB/s HBM
+#let blackwell_ifb_bw = sci(200, 9)      // 200 GB/s InfiniBand
+#let blackwell_nvlink_bw = sci(0.9, 12)  // 900 GB/s NVLink
+#let blackwell_c_fp4 = sci(9, 15)        // 9 PFLOPS FP4
+#let blackwell_c_fp8 = sci(4.5, 15)      // 4.5 PFLOPS FP8
+
+// Hopper H100
+#let h100_fp8_flops = sci(2, 15)         // 2 PFLOPS FP8
+#let h100_ifb_bw = sci(200, 9)           // 200 GB/s InfiniBand
+
+// =============================================================================
+// Model Configs
+// =============================================================================
+#let llama_nkv = 8
+#let llama_nh = 128
+#let gptoss_nkv = 8
+#let gptoss_nh = 64
+
+// =============================================================================
+// Plotting Helpers
+// =============================================================================
+// Human-readable tick marks for log scale axes
+#let x_ticks = (
+  (100, "100"),
+  (300, "300"),
+  (1000, "1K"),
+  (5000, "5K"),
+  (16000, "16K"),
+  (128000, "128K"),
+  (1000000, "1M"),
+)
+
+#let y_ticks = (
+  (100, "100"),
+  (300, "300"),
+  (1000, "1K"),
+  (2000, "2K"),
+  (5000, "5K"),
+  (10000, "10K"),
+  (20000, "20K"),
+  (40000, "40K"),
+  (100000, "100K"),
+  (300000, "300K"),
+  (500000, "500K"),
+  (1000000, "1M"),
+)
+
+// Create a log-log plot for T_max vs P with automatic axes
+// series: array of (data, color, label) tuples
+// data is array of (x, y) points
+#let tmax-plot(
+  series,
+  x-label: [$P$ (prefix tokens)],
+  y-label: [$T_max$ (new tokens)],
+  size: (12, 7),
+  x-min: 100,
+  x-max: 1000000,
+  y-min: auto,
+  y-max: auto,
+) = {
+  // Calculate y bounds from data if auto
+  let all_y = series.map(s => s.at(0).map(p => p.at(1))).flatten()
+  let data_y_min = calc.min(..all_y)
+  let data_y_max = calc.max(..all_y)
+
+  let actual_y_min = if y-min == auto { data_y_min * 0.9 } else { y-min }
+  let actual_y_max = if y-max == auto { data_y_max * 1.1 } else { y-max }
+
+  cetz.canvas({
+    import cetz.draw: *
+
+    plot.plot(
+      size: size,
+      x-label: x-label,
+      y-label: y-label,
+      x-mode: "log",
+      y-mode: "log",
+      x-tick-step: none,
+      y-tick-step: none,
+      x-ticks: x_ticks,
+      y-ticks: y_ticks,
+      x-min: x-min,
+      x-max: x-max,
+      y-min: actual_y_min,
+      y-max: actual_y_max,
+      legend: "east",
+      {
+        for (data, color, label) in series {
+          plot.add(
+            data,
+            style: (stroke: (paint: color, thickness: 2pt)),
+            label: label,
+          )
+        }
+      },
+    )
+  })
+}
+
 #title-slide()
 
 == Background: Attention (single query)
@@ -239,22 +344,11 @@ For $N$ ranks, sequence length $T$, model dim $D_q$, $N_H$ query heads, $N_(K V)
 
 == Ring Attention: Overlap Condition
 
-
 $
- (2 T^2 D / N) / C >= (2 T D (N_(K V) / N_H) e) / BW  \
-  T / (C N) & >= (N_(K V) e) / (N_H BW) \
-          T & >= N (N_(K V) / N_H) ((C e) / (BW))
+  (2 T^2 D / N) / C >= (2 T D (N_(K V) / N_H) e) / BW \
+                                            T / (C N) & >= (N_(K V) e) / (N_H BW) \
+                                                    T & >= N (N_(K V) / N_H) ((C e) / (BW))
 $
-
-#let sci(a, x) = a * calc.pow(10, x)
-#let blackwell_mem_bw = sci(8, 12)
-#let blackwell_ifb_bw = sci(200, 9)
-#let blackwell_nvlink_bw = sci(0.9, 12)
-#let blackwell_c_fp4 = sci(9, 15)
-#let blackwell_c_fp8 = sci(4.5, 15)
-#let h100_fp8_flops = sci(2, 15)
-#let h100_ifb_bw = sci(200, 9)
-
 
 $(C e)/BW$ for Blackwell IFB is $approx$#(blackwell_c_fp4 * 0.5 / blackwell_ifb_bw)
 
@@ -265,12 +359,6 @@ $(C e)/BW$ for Blackwell HMB is $approx$#(blackwell_c_fp4 * 0.5 / blackwell_mem_
 == When Can We Hide Communication?
 
 #let t_min(n, n_kv, n_h, e, c, bw) = n * (n_kv / n_h) * c * e / (2 * bw)
-
-// Model configs
-#let llama_nkv = 8
-#let llama_nh = 128
-#let gptoss_nkv = 8
-#let gptoss_nh = 64
 
 // TODO: add deepseek v3 https://verda.com/blog/multi-head-latent-attention-benefits-in-memory-and-computation
 
@@ -323,10 +411,8 @@ Minimum $T$ for communication overlap (8 $times$ B200) #footnote[Infiniband unid
   })
 ]
 
-
-GPT-OSS $N_H / N_(K V) = 64 / 8$
-
-Llama405B $N_H / N_(K V) = 128 / 8$
+Independent of datatype since $C e$ is _theoretically_ constant.
+NVL72 
 
 == Ring Attention with Prefixes
 With $P$ cached tokens,
@@ -735,13 +821,30 @@ Note: $C dot e$ is the same for FP4 and FP8, so model doesn't matter!
 
 Requires balanced KVs across ranks (round-robin during decode)
 
+== This Paper Kinda Stinks
+
+They have a bunch of math mistakes. Ex:
+#image("og_paper_bad_math.png", width: 100%)
+
+#pause
+
+This is _so wrong it hurts._
+
+#pause
+
+They also don't actually solve their inequalities!
+
+#pause
+
+Let's do it right.
+
 == All-to-All cost
 
 All-to-All time in a ring is roughly #footnote[
   #link("https://jax-ml.github.io/scaling-book/sharding/#our-final-communication-primitive-the-alltoall")[
     #underline("See this derivation")
-    ]
   ]
+]
 $
   T_"all2all" = (T D e) / (4 BW)
 $
@@ -753,11 +856,9 @@ Need to check if $T_"all2all" < (T_"kv,comm" - T_"kv,compute")$
 == All-to-All cost
 
 $
-  T_"kv,comm" - T_"kv,compute" &= 2 (P + T) D (N_(K V)) / (N_H) e / BW - (2 (P + T) T D) / (N C) \
-  &= 2(P+T) D ( N_(K V) / N_H e / BW- T / (N C)) \
-
- (T D e) / (4 BW) &< T_"kv,comm" - T_"kv,compute" \
-
+  T_"kv,comm" - T_"kv,compute" & = 2 (P + T) D (N_(K V)) / (N_H) e / BW - (2 (P + T) T D) / (N C) \
+                               & = 2(P+T) D ( N_(K V) / N_H e / BW- T / (N C)) \
+              (T D e) / (4 BW) & < T_"kv,comm" - T_"kv,compute" \
 $
 
 Ends up being quadratic... hand it to `sympy`, solve for $T$ and plot
@@ -790,37 +891,10 @@ Maximum $T$ where Pass-Q is faster than Pass-KV (8 $times$ B200 IFB):
 })
 
 #align(center)[
-  #cetz.canvas({
-    import cetz.draw: *
-
-    plot.plot(
-      size: (12, 7),
-      y-label: [$T_max$ (new tokens)],
-      y-mode: "log",
-      x-mode: "log",
-      x-label: [$P$ (prefix tokens)],
-      x-tick-step: none,
-      x-ticks: ((100, "100"), (1000, "1K"), (10000, "10K"), (100000, "100K"), (1000000, "1M")),
-      x-min: 100,
-      x-max: 1000000,
-      y-min: 100,
-      y-tick-step: none,
-      y-ticks: ((100, "100"), (300, "300"), (1000, "1K"), (5000, "5K"), (20000, "20K"), (100000, "100K")),
-      legend: "east",
-      {
-        plot.add(
-          llama_b200_ifb,
-          style: (stroke: (paint: colors.blue, thickness: 2pt)),
-          label: [Llama-405B ($N_H$/$N_(K V)$ = 16)],
-        )
-        plot.add(
-          gptoss_b200_ifb,
-          style: (stroke: (paint: colors.red, thickness: 2pt)),
-          label: [GPT-OSS ($N_H$/$N_(K V)$ = 8)],
-        )
-      }
-    )
-  })
+  #tmax-plot((
+    (llama_b200_ifb, colors.blue, [Llama-405B ($N_H$/$N_(K V)$ = 16)]),
+    (gptoss_b200_ifb, colors.red, [GPT-OSS ($N_H$/$N_(K V)$ = 8)]),
+  ))
 ]
 
 Below $T_max$, use All-to-All (Pass-Q). Above $T_max$, use Pass-KV.
@@ -850,42 +924,15 @@ All-to-all cost is $(T D e) / (bold(N) dot 4 dot BW)$ and $BW$ is 900GB/s v.s. 2
 })
 
 #align(center)[
-  #cetz.canvas({
-    import cetz.draw: *
-
-
-    plot.plot(
-      size: (12, 7),
-      y-label: [$T_max$ (new tokens)],
-      y-mode: "log",
-      x-mode: "log",
-      x-label: [$P$ (prefix tokens)],
-      x-tick-step: none,
-      x-ticks: ((100, "100"), (1000, "1K"), (10000, "10K"), (100000, "100K"), (1000000, "1M")),
-      x-min: 100,
-      x-max: 1000000,
-      y-min: 10000,
-      y-max: 100000,
-      y-tick-step: none,
-      y-ticks: ((100, "100"), (300, "300"), (1000, "1K"), (5000, "5K"), (20000, "20K"), (50000, "50K"), (100000, "100K")),
-      legend: "east",
-      {
-        plot.add(
-          llama_nvl72,
-          style: (stroke: (paint: colors.blue, thickness: 2pt)),
-          label: [Llama-405B (NVL72)],
-        )
-        plot.add(
-          gptoss_nvl72,
-          style: (stroke: (paint: colors.red, thickness: 2pt)),
-          label: [GPT-OSS (NVL72)],
-        )
-      }
-    )
-  })
+  #tmax-plot((
+    (llama_nvl72, colors.blue, [Llama-405B (NVL72)]),
+    (gptoss_nvl72, colors.red, [GPT-OSS (NVL72)]),
+  ))
 ]
 
 With NVL72's lower all-to-all cost, Pass-Q is optimal up to larger $T$.
+
+But we only fail to hide communication for fairly small $T$.
 
 == Meta's Hopper Performance
 
@@ -909,59 +956,25 @@ Does the math say the same?
 })
 
 #align(center)[
-  #cetz.canvas({
-    import cetz.draw: *
-    let nvl72_max = calc.max(..gptoss_nvl72.map(x => x.at(1)))
-
-    plot.plot(
-      size: (12, 7),
-      y-label: [$T_max$ (new tokens)],
-      x-mode: "log",
-      y-mode: "log",
-      y-tick-step: none,
-      x-label: [$P$ (prefix tokens)],
-      x-tick-step: none,
-      x-ticks: ((100, "100"), (1000, "1K"), (10000, "10K"), (100000, "100K"), (1000000, "1M")),
-      y-min: 100,
-      y-max: nvl72_max + 10000,
-      y-ticks: ((100, "100"), (300, "300"), (1000, "1K"), (5000, "5K"), (20000, "20K"), (100000, "100K")),
-      legend: "east",
-      {
-        plot.add(
-          gptoss_b200_ifb,
-          style: (stroke: (paint: colors.red, thickness: 2pt)),
-          label: [GPT-OSS (B200 IFB)],
-        )
-        plot.add(
-          gptoss_h100,
-          style: (stroke: (paint: colors.orange, thickness: 2pt)),
-          label: [GPT-OSS (H100 IFB)],
-        )
-        plot.add(
-          llama_b200_ifb,
-          style: (stroke: (paint: colors.purple, thickness: 2pt)),
-          label: [Llama-405B (B200IFB)],
-        )
-        plot.add(
-          llama_h100,
-          style: (stroke: (paint: colors.blue, thickness: 2pt)),
-          label: [Llama-405B (H100 IFB)],
-        )
-        plot.add(
-          llama_nvl72,
-          style: (stroke: (paint: colors.blue, thickness: 2pt)),
-          label: [Llama-405B (NVL72)],
-        )
-        plot.add(
-          gptoss_nvl72,
-          style: (stroke: (paint: colors.red, thickness: 2pt)),
-          label: [GPT-OSS (NVL72)],
-        )
-      }
-    )
-  })
+  #tmax-plot((
+    (gptoss_h100, colors.orange, [GPT-OSS (H100 IFB)]),
+    (llama_h100, colors.blue, [Llama-405B (H100 IFB)]),
+  ))
 ]
 
-For H100 IFB at P=128K, $T_"max" approx 2K approx 2\%$ hit rate! Pretty close!
+For H100 IFB at P=128K, $T_"max" approx 5K approx 4\%$ miss rate! Empirically $approx 5\%$!
 
-For NVL72 this works really well!
+== Putting it all together
+All $N = 8$
+#align(center)[
+  #tmax-plot((
+    (gptoss_b200_ifb, colors.red, [GPT-OSS (B200 IFB)]),
+    (gptoss_h100, colors.orange, [GPT-OSS (H100 IFB)]),
+    (llama_b200_ifb, colors.purple, [Llama-405B (B200 IFB)]),
+    (llama_h100, colors.blue, [Llama-405B (H100 IFB)]),
+    (llama_nvl72, colors.blue-light, [Llama-405B (NVL72)]),
+    (gptoss_nvl72, colors.green, [GPT-OSS (NVL72)]),
+  ))
+]
+
+NVL72 pass-Q may be optimal, but $T$ which isn't hideable is small.
