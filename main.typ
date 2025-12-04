@@ -237,9 +237,11 @@ For $N$ ranks, sequence length $T$, model dim $D_q$, $N_H$ query heads, $N_(K V)
 *Communication* (unidirectional): $2 T D (N_(K V)) / (N_H) e$ bytes
 #let BW = $"BW"$
 
-Overlap condition: $ (2 T^2 D / N) / C >= (2 T D (N_(K V) / N_H) e) / BW $
+== Ring Attention: Overlap Condition
+
 
 $
+ (2 T^2 D / N) / C >= (2 T D (N_(K V) / N_H) e) / BW  \
   T / (C N) & >= (N_(K V) e) / (N_H BW) \
           T & >= N (N_(K V) / N_H) ((C e) / (BW))
 $
@@ -250,8 +252,15 @@ $
 #let blackwell_nvlink_bw = sci(0.9, 12)
 #let blackwell_c_fp4 = sci(9, 15)
 #let blackwell_c_fp8 = sci(4.5, 15)
+#let h100_fp8_flops = sci(2, 15)
+#let h100_ifb_bw = sci(200, 9)
+
 
 $(C e)/BW$ for Blackwell IFB is $approx$#(blackwell_c_fp4 * 0.5 / blackwell_ifb_bw)
+
+$(C e)/BW$ for Blackwell NVLink is $approx$#(blackwell_c_fp4 * 0.5 / blackwell_nvlink_bw)
+
+$(C e)/BW$ for Blackwell HMB is $approx$#(blackwell_c_fp4 * 0.5 / blackwell_mem_bw)
 
 == When Can We Hide Communication?
 
@@ -317,9 +326,9 @@ Minimum $T$ for communication overlap (8 $times$ B200) #footnote[Infiniband unid
 
 GPT-OSS $N_H / N_(K V) = 64 / 8$
 
-Llama405B $N_H / N_(K V) = 128 / 8 = 16$
+Llama405B $N_H / N_(K V) = 128 / 8$
 
-== Context Parallel with Prefixes
+== Ring Attention with Prefixes
 With $P$ cached tokens,
 
 #table(
@@ -334,19 +343,22 @@ With $P$ cached tokens,
 
 *Communication* (unidirectional): $display(2 (P + T) D (N_(K V)) / (N_H) e)$ bytes
 
-Overlap condition:
+== Ring Attention with Prefixes: Overlap Condition
 $
   (2 T(P + T) D) /(C N) & >= (2 (P + T) D (N_(K V)) / (N_H) e) / BW \
               T / (C N) & >= N_(K V)/N_H e/BW \
                       T & >= N N_(K V) / N_H (C e) / BW
 $
-#pause #emoji.excl it's the same!
+
+#emoji.excl it's the same!
 
 But the new $T$ is _only new tokens_!
 
 Must be 4k+ to hide communication!
 
-== Context Parallelism over Queries
+== This Paper: Context Parallelism over Queries
+
+From Meta using 128xH100 with IFB and TCP.
 
 For small $T$, queries are much smaller than KV!
 
@@ -763,22 +775,23 @@ Ends up being quadratic... hand it to `sympy`, solve for $T$ and plot
   (-beta + calc.sqrt(discriminant)) / (2 * alpha)
 }
 
-Maximum $T$ where Pass-Q is faster than Pass-KV (8 $times$ B200 NVLink):
+Maximum $T$ where Pass-Q is faster than Pass-KV (8 $times$ B200 IFB):
+
+
+// Generate data points for P from 1 to 1M (log scale sampling)
+#let p_values = nt.logspace(2, 6, 100)
+
+#let llama_b200_ifb = p_values.map(p => {
+  (p, t_max(p, 8, llama_nkv, llama_nh, blackwell_ifb_bw, blackwell_c_fp8, 1))
+})
+
+#let gptoss_b200_ifb = p_values.map(p => {
+  (p, t_max(p, 8, gptoss_nkv, gptoss_nh, blackwell_ifb_bw, blackwell_c_fp8, 1))
+})
 
 #align(center)[
   #cetz.canvas({
     import cetz.draw: *
-
-    // Generate data points for P from 1 to 1M (log scale sampling)
-    let p_values = nt.logspace(2, 6, 100)
-
-    let llama_data = p_values.map(p => {
-      (p, t_max(p, 8, llama_nkv, llama_nh, blackwell_ifb_bw, blackwell_c_fp8, 1))
-    })
-
-    let gptoss_data = p_values.map(p => {
-      (p, t_max(p, 8, gptoss_nkv, gptoss_nh, blackwell_ifb_bw, blackwell_c_fp8, 1))
-    })
 
     plot.plot(
       size: (12, 7),
@@ -796,12 +809,12 @@ Maximum $T$ where Pass-Q is faster than Pass-KV (8 $times$ B200 NVLink):
       legend: "east",
       {
         plot.add(
-          llama_data,
+          llama_b200_ifb,
           style: (stroke: (paint: colors.blue, thickness: 2pt)),
           label: [Llama-405B ($N_H$/$N_(K V)$ = 16)],
         )
         plot.add(
-          gptoss_data,
+          gptoss_b200_ifb,
           style: (stroke: (paint: colors.red, thickness: 2pt)),
           label: [GPT-OSS ($N_H$/$N_(K V)$ = 8)],
         )
@@ -825,21 +838,21 @@ All-to-all cost is $(T D e) / (bold(N) dot 4 dot BW)$ and $BW$ is 900GB/s v.s. 2
   let discriminant = beta * beta - 4 * alpha * gamma
   (-beta + calc.sqrt(discriminant)) / (2 * alpha)
 }
+#let p_values = nt.logspace(2, 6, 100)
+
+// NVL72 with NVLink bandwidth (900GB/s)
+#let llama_nvl72 = p_values.map(p => {
+  (p, t_max_nvl72(p, 72, llama_nkv, llama_nh, blackwell_nvlink_bw, blackwell_c_fp8, 1))
+})
+
+#let gptoss_nvl72 = p_values.map(p => {
+  (p, t_max_nvl72(p, 72, gptoss_nkv, gptoss_nh, blackwell_nvlink_bw, blackwell_c_fp8, 1))
+})
 
 #align(center)[
   #cetz.canvas({
     import cetz.draw: *
 
-    let p_values = nt.logspace(1, 6, 100)
-
-    // NVL72 with NVLink bandwidth (900GB/s)
-    let llama_nvl72 = p_values.map(p => {
-      (p, t_max_nvl72(p, 72, llama_nkv, llama_nh, blackwell_nvlink_bw, blackwell_c_fp8, 1))
-    })
-
-    let gptoss_nvl72 = p_values.map(p => {
-      (p, t_max_nvl72(p, 72, gptoss_nkv, gptoss_nh, blackwell_nvlink_bw, blackwell_c_fp8, 1))
-    })
 
     plot.plot(
       size: (12, 7),
@@ -873,3 +886,82 @@ All-to-all cost is $(T D e) / (bold(N) dot 4 dot BW)$ and $BW$ is 900GB/s v.s. 2
 ]
 
 With NVL72's lower all-to-all cost, Pass-Q is optimal up to larger $T$.
+
+== Meta's Hopper Performance
+
+#image("ttft_comparison.pdf", width: 100%)
+
+pass-Q is slighly better than pass-KV for very low miss rates
+
+Does the math say the same?
+
+== Validating Meta's Hopper Performance
+4 x H100 with 200GB/s (unidirectional) IFB
+
+#let p_values = nt.logspace(2, 6, 5)
+
+#let llama_h100 = p_values.map(p => {
+  (p, t_max(p, 4, llama_nkv, llama_nh, h100_ifb_bw, h100_fp8_flops, 1))
+})
+
+#let gptoss_h100 = p_values.map(p => {
+  (p, t_max(p, 4, gptoss_nkv, gptoss_nh, h100_ifb_bw, h100_fp8_flops, 1))
+})
+
+#align(center)[
+  #cetz.canvas({
+    import cetz.draw: *
+    let nvl72_max = calc.max(..gptoss_nvl72.map(x => x.at(1)))
+
+    plot.plot(
+      size: (12, 7),
+      y-label: [$T_max$ (new tokens)],
+      x-mode: "log",
+      y-mode: "log",
+      y-tick-step: none,
+      x-label: [$P$ (prefix tokens)],
+      x-tick-step: none,
+      x-ticks: ((100, "100"), (1000, "1K"), (10000, "10K"), (100000, "100K"), (1000000, "1M")),
+      y-min: 100,
+      y-max: nvl72_max + 10000,
+      y-ticks: ((100, "100"), (300, "300"), (1000, "1K"), (5000, "5K"), (20000, "20K"), (100000, "100K")),
+      legend: "east",
+      {
+        plot.add(
+          gptoss_b200_ifb,
+          style: (stroke: (paint: colors.red, thickness: 2pt)),
+          label: [GPT-OSS (B200 IFB)],
+        )
+        plot.add(
+          gptoss_h100,
+          style: (stroke: (paint: colors.orange, thickness: 2pt)),
+          label: [GPT-OSS (H100 IFB)],
+        )
+        plot.add(
+          llama_b200_ifb,
+          style: (stroke: (paint: colors.purple, thickness: 2pt)),
+          label: [Llama-405B (B200IFB)],
+        )
+        plot.add(
+          llama_h100,
+          style: (stroke: (paint: colors.blue, thickness: 2pt)),
+          label: [Llama-405B (H100 IFB)],
+        )
+        plot.add(
+          llama_nvl72,
+          style: (stroke: (paint: colors.blue, thickness: 2pt)),
+          label: [Llama-405B (NVL72)],
+        )
+        plot.add(
+          gptoss_nvl72,
+          style: (stroke: (paint: colors.red, thickness: 2pt)),
+          label: [GPT-OSS (NVL72)],
+        )
+      }
+    )
+  })
+]
+
+For H100 IFB at P=128K, $T_"max" approx 2K approx 2\%$ hit rate! Pretty close!
+
+For NVL72 this works really well!
